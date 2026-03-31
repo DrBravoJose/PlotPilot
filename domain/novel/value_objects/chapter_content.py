@@ -7,7 +7,7 @@ class ChapterContent:
     raw_text: str
 
     def __post_init__(self):
-        if self.raw_text is None or self.raw_text == "":
+        if not self.raw_text or not self.raw_text.strip():
             raise ValueError("Chapter content cannot be None or empty")
 
     def word_count(self) -> int:

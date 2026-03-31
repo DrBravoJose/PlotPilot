@@ -31,5 +31,8 @@ class WordCount:
             return False
         return self.value == other.value
 
+    def __hash__(self) -> int:
+        return hash(self.value)
+
     def __str__(self) -> str:
         return f"{self.value}"

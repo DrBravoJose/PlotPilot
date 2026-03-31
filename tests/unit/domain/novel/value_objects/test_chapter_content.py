@@ -27,6 +27,14 @@ def test_chapter_content_empty_string_raises_error():
         ChapterContent("")
 
 
+def test_chapter_content_whitespace_only():
+    """测试纯空格内容抛出异常"""
+    with pytest.raises(ValueError, match="Chapter content cannot be None or empty"):
+        ChapterContent("   ")
+    with pytest.raises(ValueError, match="Chapter content cannot be None or empty"):
+        ChapterContent("\t\n  ")
+
+
 def test_chapter_content_word_count():
     """测试 word_count 方法"""
     content = ChapterContent("这是测试内容")
