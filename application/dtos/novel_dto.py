@@ -49,6 +49,8 @@ class NovelDTO:
     stage: str
     chapters: List[ChapterDTO]
     total_word_count: int
+    has_bible: bool = False
+    has_outline: bool = False
 
     @classmethod
     def from_domain(cls, novel: 'Novel') -> 'NovelDTO':

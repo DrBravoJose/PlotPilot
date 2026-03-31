@@ -16,6 +16,8 @@ export interface NovelDTO {
   stage: string
   chapters: ChapterDTO[]
   total_word_count: number
+  has_bible?: boolean
+  has_outline?: boolean
 }
 
 export const novelApi = {

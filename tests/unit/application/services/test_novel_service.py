@@ -53,12 +53,15 @@ class TestNovelService:
             target_chapters=10
         )
         mock_repository.get_by_id.return_value = novel
+        mock_repository.storage.exists.side_effect = lambda path: path == "novels/test-novel/bible.json"
 
         novel_dto = service.get_novel("test-novel")
 
         assert novel_dto is not None
         assert novel_dto.id == "test-novel"
         assert novel_dto.title == "测试小说"
+        assert novel_dto.has_bible is True
+        assert novel_dto.has_outline is False
 
         mock_repository.get_by_id.assert_called_once_with(NovelId("test-novel"))
 

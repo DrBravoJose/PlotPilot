@@ -67,7 +67,13 @@ class NovelService:
         if novel is None:
             return None
 
-        return NovelDTO.from_domain(novel)
+        dto = NovelDTO.from_domain(novel)
+
+        # Check for metadata files
+        dto.has_bible = self.novel_repository.storage.exists(f"novels/{novel_id}/bible.json")
+        dto.has_outline = self.novel_repository.storage.exists(f"novels/{novel_id}/outline.json")
+
+        return dto
 
     def list_novels(self) -> List[NovelDTO]:
         """列出所有小说

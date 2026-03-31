@@ -80,13 +80,10 @@ export function useWorkbench(options: UseWorkbenchOptions) {
       title: ch.title
     }))
 
-    // Note: has_bible and has_outline are not in NovelDTO yet
-    // For now, we'll need to keep using bookApi.getDesk or add these fields to NovelDTO
-    // Temporary: fetch from old API for metadata
-    const deskData = await bookApi.getDesk(slug)
+    // Use metadata from NovelDTO
     bookMeta.value = {
-      has_bible: deskData.book?.has_bible,
-      has_outline: deskData.book?.has_outline,
+      has_bible: novelData.has_bible,
+      has_outline: novelData.has_outline,
     }
   }
 

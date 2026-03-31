@@ -123,3 +123,32 @@ class TestNovelWorkflow:
         for i, chapter in enumerate(novel.chapters, 1):
             assert chapter.number == i
             assert chapter.title == f"第{i}章"
+
+    def test_novel_metadata_fields(self, service, temp_dir):
+        """测试小说元数据字段（has_bible, has_outline）"""
+        # 创建小说
+        service.create_novel("novel-meta", "测试元数据", "作者", 5)
+
+        # 初始状态：没有 bible 和 outline
+        novel = service.get_novel("novel-meta")
+        assert novel.has_bible is False
+        assert novel.has_outline is False
+
+        # 创建 bible.json 文件
+        bible_path = temp_dir / "novels" / "novel-meta" / "bible.json"
+        bible_path.parent.mkdir(parents=True, exist_ok=True)
+        bible_path.write_text('{"characters": []}')
+
+        # 再次获取，应该检测到 bible
+        novel = service.get_novel("novel-meta")
+        assert novel.has_bible is True
+        assert novel.has_outline is False
+
+        # 创建 outline.json 文件
+        outline_path = temp_dir / "novels" / "novel-meta" / "outline.json"
+        outline_path.write_text('{"chapters": []}')
+
+        # 再次获取，应该检测到两者
+        novel = service.get_novel("novel-meta")
+        assert novel.has_bible is True
+        assert novel.has_outline is True
