@@ -282,6 +282,10 @@ onMounted(() => {
   overflow: hidden;
 }
 
+.kb-tabs :deep(.n-tabs-nav) {
+  padding-left: 16px;
+}
+
 .kb-tabs :deep(.n-tabs-pane-wrapper) {
   padding: 16px;
   overflow-y: auto;
