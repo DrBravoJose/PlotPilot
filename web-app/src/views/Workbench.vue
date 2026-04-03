@@ -12,6 +12,7 @@
               :current-chapter-id="currentChapterId"
               @select="handleChapterSelect"
               @back="goHome"
+              @refresh="handleChapterUpdated"
             />
           </template>
 

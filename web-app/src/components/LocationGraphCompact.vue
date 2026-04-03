@@ -189,11 +189,11 @@ const reload = async () => {
 }
 
 const handleNodeClick = (node: EChartsNode) => {
-  router.push({ path: `/book/${props.slug}/locations`, query: { focus: node.id } })
+  router.push({ path: `/book/${props.slug}/location-graph`, query: { focus: node.id } })
 }
 
 const goFull = () => {
-  router.push(`/book/${props.slug}/locations`)
+  router.push(`/book/${props.slug}/location-graph`)
 }
 
 watch(

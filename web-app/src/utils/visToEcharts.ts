@@ -20,6 +20,8 @@ export interface VisNode {
   font?: { size?: number; color?: string }
   borderWidth?: number
   margin?: { top?: number; right?: number; bottom?: number; left?: number }
+  // Allow any additional properties to be passed through
+  [key: string]: any
 }
 
 export interface VisEdge {
@@ -152,6 +154,14 @@ export function convertNode(visNode: VisNode): EChartsNode {
   if (visNode.title) {
     node.tooltip = {
       formatter: visNode.title,
+    }
+  }
+
+  // Preserve all additional properties (like location_type, importance, description, etc.)
+  const standardKeys = ['id', 'label', 'title', 'color', 'size', 'shape', 'font', 'borderWidth', 'margin']
+  for (const key in visNode) {
+    if (!standardKeys.includes(key) && visNode[key] !== undefined) {
+      ;(node as any)[key] = visNode[key]
     }
   }
 

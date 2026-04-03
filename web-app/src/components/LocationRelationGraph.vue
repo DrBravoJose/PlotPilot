@@ -12,7 +12,9 @@
     <div v-if="emptyHint" class="lrg-empty">
       <n-empty description="尚无地点三元组，请在「叙事与知识」中添加" size="small" />
     </div>
-    <GraphChart v-else :nodes="graphData.nodes" :links="graphData.links" height="100%" @node-click="handleNodeClick" />
+    <div v-else class="lrg-chart">
+      <GraphChart :nodes="graphData.nodes" :links="graphData.links" @node-click="handleNodeClick" />
+    </div>
   </div>
 </template>
 
@@ -24,6 +26,10 @@ import GraphChart from './charts/GraphChart.vue'
 import { convertGraph, type VisNode, type VisEdge, type EChartsGraphData, type EChartsNode } from '../utils/visToEcharts'
 
 const props = defineProps<{ slug: string }>()
+const emit = defineEmits<{
+  loading: [boolean]
+  nodeClick: [node: any]
+}>()
 const router = useRouter()
 
 interface Fact {
@@ -36,6 +42,11 @@ interface Fact {
   entity_type?: 'character' | 'location'
   importance?: 'core' | 'important' | 'normal'
   location_type?: 'city' | 'region' | 'building' | 'faction' | 'realm'
+  description?: string
+  first_appearance?: number
+  related_chapters?: number[]
+  tags?: string[]
+  attributes?: Record<string, any>
 }
 
 const loading = ref(false)
@@ -80,9 +91,10 @@ const buildVisData = () => {
   const labelToId = new Map<string, string>()
   const labelToImportance = new Map<string, string>()
   const labelToType = new Map<string, string>()
+  const labelToFact = new Map<string, Fact>()
   let nextN = 0
 
-  const entityId = (raw: string, importance?: string, locationType?: string) => {
+  const entityId = (raw: string, importance?: string, locationType?: string, fact?: Fact) => {
     const label = (raw || '').trim() || '（空）'
     if (!labelToId.has(label)) {
       labelToId.set(label, `loc_${nextN++}`)
@@ -91,6 +103,9 @@ const buildVisData = () => {
       }
       if (locationType) {
         labelToType.set(label, locationType)
+      }
+      if (fact) {
+        labelToFact.set(label, fact)
       }
     }
     return labelToId.get(label)!
@@ -104,7 +119,7 @@ const buildVisData = () => {
     // 只处理地点类型的三元组
     if (f.entity_type !== 'location') continue
 
-    const sid = entityId(f.subject, f.importance, f.location_type)
+    const sid = entityId(f.subject, f.importance, f.location_type, f)
     const oid = entityId(f.object)
 
     if (!nodeSeen.has(sid)) {
@@ -112,6 +127,7 @@ const buildVisData = () => {
       const lab = (f.subject || '').trim() || '（空）'
       const importance = labelToImportance.get(lab) || f.importance
       const locationType = labelToType.get(lab) || f.location_type
+      const fact = labelToFact.get(lab)
       nodes.push({
         id: sid,
         label: lab.length > 42 ? `${lab.slice(0, 40)}…` : lab,
@@ -120,6 +136,16 @@ const buildVisData = () => {
         font: { size: 14 },
         shape: getShapeByType(locationType),
         borderWidth: 2,
+        // 附加完整数据
+        ...(fact && {
+          location_type: fact.location_type,
+          importance: fact.importance,
+          description: fact.description,
+          first_appearance: fact.first_appearance,
+          related_chapters: fact.related_chapters,
+          tags: fact.tags,
+          attributes: fact.attributes,
+        })
       })
     }
 
@@ -159,21 +185,27 @@ const redraw = async () => {
 
 const reload = async () => {
   loading.value = true
+  emit('loading', true)
   try {
     const res = await knowledgeApi.getKnowledge(props.slug)
     facts.value = (res.facts || []) as Fact[]
+    console.log('[LocationRelationGraph] Total facts:', facts.value.length)
+    const locationFacts = facts.value.filter(f => f.entity_type === 'location')
+    console.log('[LocationRelationGraph] Location facts:', locationFacts.length, locationFacts)
     await redraw()
+    console.log('[LocationRelationGraph] Graph data:', graphData.value)
   } catch (error) {
     console.error('Failed to load location graph:', error)
     window.$message?.error('加载地点关系图失败，请稍后重试')
   } finally {
     loading.value = false
+    emit('loading', false)
   }
 }
 
 const handleNodeClick = (node: EChartsNode) => {
-  // 可以跳转到地点详情页
-  console.log('Clicked location:', node.name)
+  console.log('Clicked location:', node)
+  emit('nodeClick', node)
 }
 
 const goToKnowledge = () => {
@@ -234,5 +266,11 @@ onMounted(async () => {
   justify-content: center;
   pointer-events: none;
   z-index: 1;
+}
+
+.lrg-chart {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 </style>

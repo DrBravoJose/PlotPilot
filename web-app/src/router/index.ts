@@ -14,7 +14,7 @@ const router = createRouter({
     { path: '/book/:slug/cast', name: 'Cast', component: Cast },
     { path: '/book/:slug/chapter/:id', name: 'Chapter', component: Chapter },
     { path: '/book/:slug/characters', name: 'CharacterGraph', component: CharacterGraph },
-    { path: '/book/:slug/locations', name: 'LocationGraph', component: LocationGraph },
+    { path: '/book/:slug/location-graph', name: 'LocationGraph', component: LocationGraph },
   ],
 })
 

@@ -25,6 +25,14 @@ export interface KnowledgeTriple {
   object: string
   chapter_id: number | null
   note: string
+  entity_type?: 'character' | 'location'
+  importance?: 'primary' | 'secondary' | 'minor' | 'core' | 'important' | 'normal'
+  location_type?: 'city' | 'region' | 'building' | 'faction' | 'realm'
+  description?: string
+  first_appearance?: number
+  related_chapters?: number[]
+  tags?: string[]
+  attributes?: Record<string, any>
 }
 
 export interface StoryKnowledge {
