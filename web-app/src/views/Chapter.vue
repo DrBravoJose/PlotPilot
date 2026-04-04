@@ -141,7 +141,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { bookApi } from '../api/book'
 import { chapterApi } from '../api/chapter'
 import { useStatsStore } from '../stores/statsStore'
 
@@ -374,19 +373,18 @@ const loadChapter = async () => {
     return
   }
 
-  // Parallel execution of independent API calls
-  const [desk, chapterData, rev, structureResult] = await Promise.allSettled([
-    bookApi.getDesk(slug),
+  // 章节列表用 v1 chapters；旧 /api/book/.../desk 在后端不存在
+  const [chaptersList, chapterData, rev, structureResult] = await Promise.allSettled([
+    chapterApi.listChapters(slug),
     chapterApi.getChapter(slug, cid),
     chapterApi.getChapterReview(slug, cid),
     chapterApi.getChapterStructure(slug, cid)
   ])
 
-  // Handle desk API result
-  if (desk.status === 'fulfilled') {
-    chapterIds.value = desk.value.chapters.map(c => c.id).sort((a, b) => a - b)
+  if (chaptersList.status === 'fulfilled') {
+    chapterIds.value = chaptersList.value.map(c => c.number).sort((a, b) => a - b)
   } else {
-    console.error('Failed to load desk:', desk.reason)
+    console.error('Failed to load chapter list:', chaptersList.reason)
   }
 
   // Handle chapter data API result

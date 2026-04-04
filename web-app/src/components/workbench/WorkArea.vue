@@ -249,7 +249,7 @@
 import { ref, watch, computed } from 'vue'
 import { useMessage } from 'naive-ui'
 import { workflowApi, consumeHostedWriteStream } from '../../api/workflow'
-import { bookApi } from '../../api/book'
+import { chapterApi } from '../../api/chapter'
 
 interface Chapter {
   id: number
@@ -330,7 +330,7 @@ const handleSave = async () => {
 
   saving.value = true
   try {
-    await bookApi.updateChapter(props.slug, currentChapter.value.id, { content: chapterContent.value })
+    await chapterApi.updateChapter(props.slug, currentChapter.value.id, { content: chapterContent.value })
     originalContent.value = chapterContent.value
     message.success('保存成功')
     emit('chapterUpdated')
@@ -401,7 +401,7 @@ const handleSaveGenerated = async () => {
 
   saving.value = true
   try {
-    await bookApi.updateChapter(props.slug, currentChapter.value.id, { content: generatedContent.value })
+    await chapterApi.updateChapter(props.slug, currentChapter.value.id, { content: generatedContent.value })
     chapterContent.value = generatedContent.value
     originalContent.value = generatedContent.value
     message.success('保存成功')
