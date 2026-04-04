@@ -112,10 +112,12 @@ export const bibleApi = {
    * AI generate (or regenerate) Bible for a novel
    * POST /api/v1/bible/novels/{novelId}/generate
    */
+  /** 后端 202 即返回，但冷启动/代理连后端较慢时默认 30s 不够，易报 timeout of 30000ms exceeded */
   generateBible: (novelId: string) =>
     apiClient.post<{ message: string; novel_id: string; status_url: string }>(
       `/bible/novels/${novelId}/generate`,
-      {}
+      {},
+      { timeout: 120_000 }
     ) as Promise<{ message: string; novel_id: string; status_url: string }>,
 
   /**
@@ -124,6 +126,7 @@ export const bibleApi = {
    */
   getBibleStatus: (novelId: string) =>
     apiClient.get<{ exists: boolean; ready: boolean; novel_id: string }>(
-      `/bible/novels/${novelId}/bible/status`
+      `/bible/novels/${novelId}/bible/status`,
+      { timeout: 60_000 }
     ) as Promise<{ exists: boolean; ready: boolean; novel_id: string }>,
 }

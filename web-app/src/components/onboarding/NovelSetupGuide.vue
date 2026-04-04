@@ -1,8 +1,9 @@
 <template>
   <n-modal
-    v-model:show="visible"
+    v-model:show="modalOpen"
     :mask-closable="false"
     :close-on-esc="false"
+    :closable="false"
     preset="card"
     title="新书设置向导"
     style="width: 600px"
@@ -96,9 +97,22 @@
 </template>
 
 <script setup lang="ts">
-import { h, ref, watch, onMounted } from 'vue'
-import { useMessage } from 'naive-ui'
+import { h, ref, watch, computed, onUnmounted } from 'vue'
 import { bibleApi } from '@/api/bible'
+
+function formatApiError(error: unknown): string {
+  const e = error as {
+    response?: { data?: { detail?: unknown } }
+    message?: string
+  }
+  const d = e?.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d))
+    return d.map((x: { msg?: string }) => x?.msg || JSON.stringify(x)).join('；')
+  if (d != null && typeof d === 'object') return JSON.stringify(d)
+  if (e?.message) return e.message
+  return ''
+}
 
 const IconBook = () =>
   h(
@@ -139,80 +153,129 @@ const emit = defineEmits<{
   (e: 'skip'): void
 }>()
 
-const message = useMessage()
+/** 与父组件 show 单一数据源，避免本地 visible 与 props 打架导致误 emit(false) 把向导关掉 */
+const modalOpen = computed({
+  get: () => props.show,
+  set: (v: boolean) => emit('update:show', v),
+})
 
-const visible = ref(props.show)
 const currentStep = ref(1)
 const stepStatus = ref<'process' | 'finish' | 'error' | 'wait'>('process')
 const generatingBible = ref(false)
 const bibleStatusText = ref('正在生成公约...')
 const bibleError = ref('')
 
-watch(() => props.show, (val) => {
-  visible.value = val
-  if (val) {
-    currentStep.value = 1
-    stepStatus.value = 'process'
-    startBibleGeneration()
+const pollTimerRef = ref<ReturnType<typeof setTimeout> | null>(null)
+const timeoutTimerRef = ref<ReturnType<typeof setTimeout> | null>(null)
+/** 递增以作废上一轮流询中的异步回调（避免超时/关闭后仍进入「完成」分支） */
+const biblePollEpoch = ref(0)
+
+function clearGenerationTimers() {
+  if (pollTimerRef.value != null) {
+    clearTimeout(pollTimerRef.value)
+    pollTimerRef.value = null
   }
-})
-
-// Initialize on mount if show is true
-onMounted(() => {
-  if (props.show) {
-    startBibleGeneration()
+  if (timeoutTimerRef.value != null) {
+    clearTimeout(timeoutTimerRef.value)
+    timeoutTimerRef.value = null
   }
+}
+
+onUnmounted(() => {
+  clearGenerationTimers()
 })
 
-watch(visible, (val) => {
-  emit('update:show', val)
-})
+/** 仅清理轮询定时器，保留总超时 timer（由 clearGenerationTimers 统一清理） */
+function clearPollTimer() {
+  if (pollTimerRef.value != null) {
+    clearTimeout(pollTimerRef.value)
+    pollTimerRef.value = null
+  }
+}
 
-const startBibleGeneration = async () => {
+/**
+ * 轮询：串行 setTimeout，避免 setInterval+async 叠请求。
+ * 必须用 function 声明放在 watch 之前：`watch(..., { immediate: true })` 会同步调用回调，
+ * `const startBibleGeneration = ...` 尚在暂存死区会导致运行时报错 / 逻辑异常。
+ */
+async function startBibleGeneration() {
+  clearGenerationTimers()
+  biblePollEpoch.value += 1
+  const epoch = biblePollEpoch.value
   generatingBible.value = true
   bibleError.value = ''
 
   try {
-    // Trigger Bible generation
     await bibleApi.generateBible(props.novelId)
+    if (biblePollEpoch.value !== epoch || !generatingBible.value) return
     bibleStatusText.value = '正在生成公约...'
 
-    // Poll for completion
-    const pollInterval = setInterval(async () => {
+    const schedulePoll = (delayMs: number) => {
+      clearPollTimer()
+      pollTimerRef.value = window.setTimeout(() => {
+        void runPoll()
+      }, delayMs)
+    }
+
+    const runPoll = async () => {
+      if (biblePollEpoch.value !== epoch || !generatingBible.value) return
       try {
         const status = await bibleApi.getBibleStatus(props.novelId)
-
+        if (biblePollEpoch.value !== epoch || !generatingBible.value) return
         if (status.ready) {
-          clearInterval(pollInterval)
+          clearGenerationTimers()
           generatingBible.value = false
           bibleStatusText.value = '公约生成完成！'
-
-          // Auto advance after 1 second
           setTimeout(() => {
-            currentStep.value = 2
+            if (biblePollEpoch.value === epoch) currentStep.value = 2
           }, 1000)
+          return
         }
-      } catch (error: any) {
-        clearInterval(pollInterval)
+      } catch (error: unknown) {
+        if (biblePollEpoch.value !== epoch) return
+        clearGenerationTimers()
         generatingBible.value = false
-        bibleError.value = '检查状态失败，请刷新页面重试'
+        const detail = formatApiError(error)
+        bibleError.value =
+          detail || '检查状态失败（网络或后端不可用），请确认本机已启动 API 并刷新重试'
+        return
       }
-    }, 2000)
+      if (biblePollEpoch.value !== epoch || !generatingBible.value) return
+      schedulePoll(2000)
+    }
 
-    // Timeout after 2 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval)
-      if (generatingBible.value) {
-        generatingBible.value = false
-        bibleError.value = '生成超时，请稍后在工作台手动重试'
-      }
+    timeoutTimerRef.value = window.setTimeout(() => {
+      if (biblePollEpoch.value !== epoch) return
+      biblePollEpoch.value += 1
+      clearGenerationTimers()
+      generatingBible.value = false
+      bibleError.value = '生成超时，请稍后在工作台手动重试'
     }, 120000)
 
-  } catch (error: any) {
+    schedulePoll(0)
+  } catch (error: unknown) {
+    if (biblePollEpoch.value !== epoch) return
     generatingBible.value = false
-    bibleError.value = error.response?.data?.detail || '生成失败，请重试'
+    const detail = formatApiError(error)
+    bibleError.value = detail || '生成失败，请重试'
   }
 }
+
+watch(
+  () => props.show,
+  (val) => {
+    if (val) {
+      currentStep.value = 1
+      stepStatus.value = 'process'
+      void startBibleGeneration()
+    } else {
+      biblePollEpoch.value += 1
+      clearGenerationTimers()
+      generatingBible.value = false
+    }
+  },
+  { immediate: true }
+)
 
 const handleNext = () => {
   if (currentStep.value < 4) {
@@ -222,12 +285,12 @@ const handleNext = () => {
 
 const handleSkip = () => {
   emit('skip')
-  visible.value = false
+  emit('update:show', false)
 }
 
 const handleComplete = () => {
   emit('complete')
-  visible.value = false
+  emit('update:show', false)
 }
 </script>
 
