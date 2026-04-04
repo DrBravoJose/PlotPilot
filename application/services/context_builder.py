@@ -4,6 +4,7 @@ from domain.bible.services.relationship_engine import RelationshipEngine
 from domain.novel.services.storyline_manager import StorylineManager
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
+from domain.novel.repositories.plot_arc_repository import PlotArcRepository
 from domain.novel.value_objects.novel_id import NovelId
 from domain.ai.services.vector_store import VectorStore
 
@@ -26,7 +27,8 @@ class ContextBuilder:
         relationship_engine: RelationshipEngine,
         vector_store: VectorStore,
         novel_repository: NovelRepository,
-        chapter_repository: ChapterRepository
+        chapter_repository: ChapterRepository,
+        plot_arc_repository: Optional[PlotArcRepository] = None,
     ):
         self.bible_service = bible_service
         self.storyline_manager = storyline_manager
@@ -34,6 +36,7 @@ class ContextBuilder:
         self.vector_store = vector_store
         self.novel_repository = novel_repository
         self.chapter_repository = chapter_repository
+        self.plot_arc_repository = plot_arc_repository
 
     def build_context(
         self,

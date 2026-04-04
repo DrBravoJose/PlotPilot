@@ -16,9 +16,15 @@
 
     <n-empty
       v-else-if="!loading"
-      description="暂无叙事结构。请先查看右侧「文约设定」，确认无误后再执行「AI 初始规划」"
+      description="暂无叙事结构"
       class="structure-empty"
-    />
+    >
+      <template #extra>
+        <n-button type="primary" @click="initializeStructure">
+          AI 初始规划
+        </n-button>
+      </template>
+    </n-empty>
 
     <n-spin v-if="loading" class="structure-loading" />
   </div>
@@ -26,8 +32,9 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted, watch } from 'vue'
-import { NTree, NEmpty, NSpin, NTag, useMessage } from 'naive-ui'
+import { NTree, NEmpty, NSpin, NTag, NButton, useMessage, useDialog } from 'naive-ui'
 import { structureApi, type StoryNode } from '@/api/structure'
+import { workflowApi } from '@/api/workflow'
 
 const props = defineProps<{
   slug: string
@@ -39,6 +46,7 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+const dialog = useDialog()
 
 const loading = ref(false)
 const treeData = ref<StoryNode[]>([])
@@ -104,28 +112,33 @@ const loadTree = async () => {
   }
 }
 
-// 初始化叙事结构（AI 生成第一幕）
+// AI 初始规划（生成多个幕）
 const initializeStructure = async () => {
-  // 防止重复点击
-  if (loading.value) return
-
-  try {
-    message.info('正在生成第一幕...')
-    const res = await structureApi.initializeStructure(props.slug)
-
-    if (res.success) {
-      message.success(res.message || '第一幕已创建')
-      const treeRes = await structureApi.getTree(props.slug)
-      const nodes = treeRes.tree?.nodes ?? (Array.isArray(treeRes.tree) ? treeRes.tree : [])
-      treeData.value = nodes.map(convertToTreeNode)
-    } else {
-      message.warning(res.message || '结构已存在')
+  dialog.warning({
+    title: 'AI 初始规划',
+    content: '将使用 AI 生成初始 Bible（世界设定）和章节大纲。此操作可能需要 1-2 分钟，确认继续？',
+    positiveText: '确认',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      loading.value = true
+      void (async () => {
+        try {
+          const res = await workflowApi.planNovel(props.slug, 'initial', false)
+          if (res.success) {
+            message.success('规划完成，正在加载叙事结构...')
+            await loadTree()
+          } else {
+            message.warning(res.message || '规划失败')
+          }
+        } catch (e: any) {
+          message.error(e?.response?.data?.detail || '规划失败')
+        } finally {
+          loading.value = false
+        }
+      })()
+      return true
     }
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '初始化失败')
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 // 选择节点
