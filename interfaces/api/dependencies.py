@@ -586,3 +586,16 @@ def get_tension_analyzer():
     narrative_event_repo = SqliteNarrativeEventRepository(get_database())
     return TensionAnalyzer(narrative_event_repo, llm_client)
 
+
+def get_sandbox_dialogue_service():
+    """获取沙盘对白服务
+
+    Returns:
+        SandboxDialogueService 实例
+    """
+    from application.services.sandbox_dialogue_service import SandboxDialogueService
+    from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
+
+    narrative_event_repo = SqliteNarrativeEventRepository(get_database())
+    return SandboxDialogueService(narrative_event_repo)
+
