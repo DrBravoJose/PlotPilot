@@ -11,7 +11,7 @@
               :slug="slug"
               :chapters="chapters"
               :current-chapter-id="currentChapterId"
-              @select="handleChapterSelect"
+              @select="onSidebarChapterSelect"
               @back="goHome"
               @refresh="handleChapterUpdated"
               @plan-act="handlePlanAct"
@@ -22,6 +22,7 @@
             <n-split direction="horizontal" :min="0.40" :max="0.75" :default-size="0.60">
               <template #1>
                 <WorkArea
+                  ref="workAreaRef"
                   :slug="slug"
                   :book-title="bookTitle"
                   :chapters="chapters"
@@ -74,6 +75,12 @@ const message = useMessage()
 const slug = route.params.slug as string
 
 const chapterListRef = ref<ComponentPublicInstance<{ refreshStoryTree: () => void }> | null>(null)
+const workAreaRef = ref<ComponentPublicInstance<{ ensureAssistedMode: () => void }> | null>(null)
+
+async function onSidebarChapterSelect(chapterId: number, title = '') {
+  await handleChapterSelect(chapterId, title)
+  workAreaRef.value?.ensureAssistedMode?.()
+}
 
 const handleChapterUpdated = async () => {
   await loadDesk()

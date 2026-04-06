@@ -5,86 +5,127 @@
         <h2 class="work-title">{{ bookTitle || slug }}</h2>
         <n-text depth="3" class="work-sub">{{ slug }}</n-text>
       </div>
-      <n-space :size="8" align="center" wrap class="work-header-actions">
-        <n-button type="primary" size="small" @click="showWorkflowModal = true" title="完整工作流：场景分析 + 流式生成 + 一致性检验，推荐">
-          📖 工作流撰稿
-        </n-button>
-      </n-space>
+      <n-radio-group
+        v-model:value="workMode"
+        size="small"
+        class="work-mode-switch"
+      >
+        <n-radio-button value="assisted">辅助撰稿</n-radio-button>
+        <n-radio-button value="managed">托管撰稿</n-radio-button>
+      </n-radio-group>
     </header>
 
-    <!-- 自动驾驶面板 -->
-    <div class="autopilot-container">
-      <AutopilotPanel :novel-id="slug" @status-change="handleAutopilotStatusChange" />
-    </div>
+    <div class="work-body">
+      <!-- 辅助撰稿：编辑区 + 章节状态 + 章节元素（无全托管驾驶、无监控大盘） -->
+      <template v-if="workMode === 'assisted'">
+        <n-alert
+          v-if="isAssistedReadOnly"
+          type="warning"
+          :show-icon="true"
+          class="assisted-readonly-banner"
+        >
+          全托管进行中：可阅读正文与关联信息，不可保存、改稿或触发生成。请切换到「托管撰稿」查看驾驶舱与监控，或停止托管后再编辑。
+        </n-alert>
+        <n-tabs v-model:value="activeTab" type="line" animated class="work-tabs assisted-tabs">
+          <n-tab-pane name="editor" tab="📝 章节编辑">
+            <div class="work-main">
+              <div v-if="currentChapter" class="chapter-editor">
+                <div class="editor-header">
+                  <div class="editor-title">
+                    <h3>{{ currentChapter.title || `第${currentChapter.number}章` }}</h3>
+                    <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
+                      {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
+                    </n-tag>
+                  </div>
+                  <n-space :size="8">
+                    <n-button size="small" @click="handleReload" :disabled="loading">
+                      重新加载
+                    </n-button>
+                    <n-button
+                      size="small"
+                      type="primary"
+                      @click="handleSave"
+                      :disabled="!hasChanges || isAssistedReadOnly"
+                      :loading="saving"
+                    >
+                      保存
+                    </n-button>
+                  </n-space>
+                </div>
 
-    <!-- 主工作区 Tab -->
-    <n-tabs v-model:value="activeTab" type="line" animated class="work-tabs">
-      <n-tab-pane name="editor" tab="📝 章节编辑">
-        <div class="work-main">
-          <div v-if="currentChapter" class="chapter-editor">
-        <div class="editor-header">
-          <div class="editor-title">
-            <h3>{{ currentChapter.title || `第${currentChapter.number}章` }}</h3>
-            <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
-              {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
-            </n-tag>
-          </div>
-          <n-space :size="8">
-            <n-button size="small" @click="handleReload" :disabled="loading">
-              重新加载
-            </n-button>
-            <n-button size="small" type="primary" @click="handleSave" :disabled="!hasChanges" :loading="saving">
-              保存
-            </n-button>
-          </n-space>
+                <div class="editor-body">
+                  <n-input
+                    v-model:value="chapterContent"
+                    type="textarea"
+                    placeholder="章节内容..."
+                    :autosize="{ minRows: 22 }"
+                    :readonly="isAssistedReadOnly"
+                    @update:value="handleContentChange"
+                  />
+                </div>
+
+                <div class="editor-footer">
+                  <n-space :size="8" align="center" justify="space-between" style="width: 100%">
+                    <n-text depth="3">字数: {{ wordCount }}</n-text>
+                    <n-space :size="8">
+                      <n-tooltip trigger="hover" :disabled="!isAutopilotRunning && !isAssistedReadOnly">
+                        <template #trigger>
+                          <n-button
+                            size="small"
+                            secondary
+                            @click="handleGenerateChapter"
+                            :loading="generating"
+                            :disabled="isAutopilotRunning || isAssistedReadOnly"
+                          >
+                            ⚡ 快速生成
+                          </n-button>
+                        </template>
+                        <span>{{ isAssistedReadOnly ? '托管运行中不可手动生成' : 'Autopilot 运行时禁用手动生成' }}</span>
+                      </n-tooltip>
+                      <n-button
+                        size="small"
+                        secondary
+                        :disabled="isAssistedReadOnly"
+                        @click="openTensionModal"
+                        title="诊断当前章节张力缺口"
+                      >
+                        🔍 张力诊断
+                      </n-button>
+                    </n-space>
+                  </n-space>
+                </div>
+              </div>
+
+              <n-empty v-else description="请从左侧选择章节" class="work-empty" />
+            </div>
+          </n-tab-pane>
+
+          <n-tab-pane name="chapter-status" tab="📋 章节状态">
+            <ChapterStatusPanel :chapter="currentChapter" :read-only="isAssistedReadOnly" />
+          </n-tab-pane>
+
+          <n-tab-pane name="chapter-elements" tab="🧩 章节元素">
+            <div class="elements-tab-wrap">
+              <ChapterElementPanel
+                :slug="slug"
+                :current-chapter-number="currentChapter?.number ?? null"
+                :read-only="isAssistedReadOnly"
+              />
+            </div>
+          </n-tab-pane>
+        </n-tabs>
+      </template>
+
+      <!-- 托管撰稿：驾驶舱 + 监控大盘（点击左侧章节会切回辅助撰稿） -->
+      <div v-else class="managed-stack">
+        <div class="autopilot-container managed-autopilot">
+          <AutopilotPanel :novel-id="slug" @status-change="handleAutopilotStatusChange" />
         </div>
-
-        <div class="editor-body">
-          <n-input
-            v-model:value="chapterContent"
-            type="textarea"
-            placeholder="章节内容..."
-            :autosize="{ minRows: 22 }"
-            @update:value="handleContentChange"
-          />
-        </div>
-
-        <div class="editor-footer">
-          <n-space :size="8" align="center" justify="space-between" style="width: 100%">
-            <n-text depth="3">字数: {{ wordCount }}</n-text>
-            <n-space :size="8">
-              <n-tooltip trigger="hover" :disabled="!isAutopilotRunning">
-                <template #trigger>
-                  <n-button
-                    size="small"
-                    secondary
-                    @click="handleGenerateChapter"
-                    :loading="generating"
-                    :disabled="isAutopilotRunning"
-                  >
-                    ⚡ 快速生成
-                  </n-button>
-                </template>
-                <span>Autopilot 运行时禁用手动生成</span>
-              </n-tooltip>
-              <n-button size="small" secondary @click="openTensionModal" title="诊断当前章节张力缺口">
-                🔍 张力诊断
-              </n-button>
-            </n-space>
-          </n-space>
-        </div>
-      </div>
-
-      <n-empty v-else description="请从左侧选择章节" class="work-empty" />
-        </div>
-      </n-tab-pane>
-
-      <n-tab-pane name="monitor" tab="📊 监控大盘">
-        <div class="monitor-container">
+        <div class="managed-monitor">
           <AutopilotDashboard :novel-id="slug" />
         </div>
-      </n-tab-pane>
-    </n-tabs>
+      </div>
+    </div>
 
     <!-- AI 生成本章弹窗 -->
     <n-modal
@@ -138,7 +179,7 @@
                 type="primary"
                 @click="handleStartGenerate"
                 :loading="generating"
-                :disabled="generating"
+                :disabled="generating || isAssistedReadOnly"
                 size="medium"
                 block
               >
@@ -212,7 +253,14 @@
           <n-card v-if="generating || generatedContent" title="生成内容" size="small" :bordered="false">
             <template #header-extra>
               <n-space :size="8">
-                <n-button v-if="generatedContent && !generating" size="tiny" type="primary" @click="handleSaveGenerated" :loading="saving">
+                <n-button
+                  v-if="generatedContent && !generating"
+                  size="tiny"
+                  type="primary"
+                  :disabled="isAssistedReadOnly"
+                  @click="handleSaveGenerated"
+                  :loading="saving"
+                >
                   保存到章节
                 </n-button>
                 <n-button size="tiny" @click="generatedContent = ''" :disabled="generating">清空</n-button>
@@ -315,23 +363,13 @@
       </template>
     </n-modal>
 
-    <!-- 完整工作流撰稿弹窗（场景分析 + 流式 + 一致性报告） -->
-    <GenerateChapterWorkflowModal
-      v-model:show="showWorkflowModal"
-      :slug="slug"
-      :chapters="chapters"
-      :default-chapter-id="currentChapterId"
-      @saved="emit('chapterUpdated')"
-      @plan-act="(_actId, _actTitle) => emit('setRightPanel', 'bible')"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
-  workflowApi,
   consumeGenerateChapterStream,
   analyzeScene,
   retrieveContext,
@@ -340,7 +378,8 @@ import type { ContextPreviewResult } from '../../api/workflow'
 import { chapterApi } from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
-import GenerateChapterWorkflowModal from './GenerateChapterWorkflowModal.vue'
+import ChapterElementPanel from './ChapterElementPanel.vue'
+import ChapterStatusPanel from './ChapterStatusPanel.vue'
 import AutopilotPanel from '../autopilot/AutopilotPanel.vue'
 import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
 
@@ -376,10 +415,11 @@ const emit = defineEmits<{
 
 const message = useMessage()
 
-// Tab 状态
-const activeTab = ref('editor')
+/** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
+const workMode = ref<'assisted' | 'managed'>('assisted')
 
-const showWorkflowModal = ref(false)
+// Tab 状态（仅辅助撰稿）
+const activeTab = ref('editor')
 const showGenerateModal = ref(false)
 const generateOutline = ref('')
 const generatedContent = ref('')
@@ -388,9 +428,62 @@ const generatedContent = ref('')
 const autopilotStatus = ref<any>(null)
 const isAutopilotRunning = computed(() => autopilotStatus.value?.autopilot_status === 'running')
 
+/** 在辅助撰稿且全托管运行中：只读，不可改稿与生成 */
+const isAssistedReadOnly = computed(
+  () => workMode.value === 'assisted' && isAutopilotRunning.value
+)
+
 const handleAutopilotStatusChange = (status: any) => {
   autopilotStatus.value = status
 }
+
+/** 辅助撰稿下不挂载驾驶舱，需独立轮询托管状态以支持「运行中只读」 */
+let assistedAutopilotPollTimer: ReturnType<typeof setInterval> | null = null
+
+function clearAssistedAutopilotPoll() {
+  if (assistedAutopilotPollTimer != null) {
+    clearInterval(assistedAutopilotPollTimer)
+    assistedAutopilotPollTimer = null
+  }
+}
+
+async function pollAutopilotStatusWhileAssisted() {
+  try {
+    const res = await fetch(`/api/v1/autopilot/${props.slug}/status`)
+    if (res.ok) {
+      autopilotStatus.value = await res.json()
+    }
+  } catch {
+    /* 忽略 */
+  }
+}
+
+watch(
+  () => workMode.value,
+  (mode) => {
+    clearAssistedAutopilotPoll()
+    if (mode === 'assisted') {
+      void pollAutopilotStatusWhileAssisted()
+      assistedAutopilotPollTimer = setInterval(
+        () => void pollAutopilotStatusWhileAssisted(),
+        4000
+      )
+    }
+  },
+  { immediate: true }
+)
+
+onUnmounted(() => clearAssistedAutopilotPoll())
+
+/** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
+watch(
+  () => props.currentChapterId,
+  (id, prev) => {
+    if (id != null && id !== prev) {
+      workMode.value = 'assisted'
+    }
+  }
+)
 
 // 章节编辑
 const chapterContent = ref('')
@@ -417,6 +510,10 @@ const openTensionModal = () => {
 
 const runTensionSlingshot = async () => {
   if (!currentChapter.value) return
+  if (isAssistedReadOnly.value) {
+    message.warning('托管运行中不可使用张力诊断')
+    return
+  }
   tensionLoading.value = true
   try {
     tensionResult.value = await tensionApi.slingshot(props.slug, {
@@ -497,6 +594,10 @@ const handleContentChange = () => {
 
 const handleSave = async () => {
   if (!currentChapter.value) return
+  if (isAssistedReadOnly.value) {
+    message.warning('托管运行中不可保存，请先停止托管或仅阅读正文')
+    return
+  }
 
   saving.value = true
   try {
@@ -525,6 +626,10 @@ const handleReload = async () => {
 
 const handleGenerateChapter = async () => {
   if (!currentChapter.value) return
+  if (isAssistedReadOnly.value) {
+    message.warning('托管运行中不可使用快速生成')
+    return
+  }
 
   generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
 
@@ -536,6 +641,10 @@ const handleGenerateChapter = async () => {
 
 const handleStartGenerate = async () => {
   if (!currentChapter.value) return
+  if (isAssistedReadOnly.value) {
+    message.warning('托管运行中不可手动生成')
+    return
+  }
 
   const targetChapterId = currentChapter.value.id
   const targetChapterNumber = currentChapter.value.number
@@ -604,6 +713,10 @@ const handleStartGenerate = async () => {
 
 const handleSaveGenerated = async () => {
   if (!currentChapter.value || !generatedContent.value) return
+  if (isAssistedReadOnly.value) {
+    message.warning('托管运行中不可保存生成结果')
+    return
+  }
 
   saving.value = true
   try {
@@ -626,14 +739,71 @@ const stopGenerate = () => {
   generatingChapterId.value = null
   message.info('已停止生成')
 }
+
+/** 左侧每次点选章节时由父组件调用，确保回到辅助撰稿（含重复点击当前章） */
+function ensureAssistedMode() {
+  workMode.value = 'assisted'
+}
+
+defineExpose({ ensureAssistedMode })
 </script>
 
 <style scoped>
 .work-area {
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--app-surface);
+}
+
+.work-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.work-mode-switch {
+  flex-shrink: 0;
+}
+
+.assisted-readonly-banner {
+  flex-shrink: 0;
+  margin: 0 16px 8px;
+}
+
+.assisted-tabs {
+  flex: 1;
+  min-height: 0;
+}
+
+.managed-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.managed-autopilot {
+  flex-shrink: 0;
+}
+
+.managed-monitor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--app-surface);
+}
+
+.managed-monitor :deep(.autopilot-dashboard) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .work-header {
@@ -689,6 +859,24 @@ const stopGenerate = () => {
   padding: 20px;
   overflow-y: auto;
   background: var(--app-surface);
+}
+
+.elements-tab-wrap {
+  height: 100%;
+  min-height: 0;
+  padding: 12px 16px 16px;
+  overflow: hidden;
+  background: var(--app-surface);
+  display: flex;
+  flex-direction: column;
+}
+
+.elements-tab-wrap :deep(.ce-panel) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .work-main {
