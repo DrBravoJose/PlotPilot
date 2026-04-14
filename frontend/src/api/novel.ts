@@ -28,7 +28,7 @@ export const novelApi = {
    * List all novels
    * GET /api/v1/novels
    */
-  listNovels: () => apiClient.get<NovelDTO[]>('/novels') as Promise<NovelDTO[]>,
+  listNovels: () => apiClient.get<NovelDTO[]>('/novels/') as Promise<NovelDTO[]>,
 
   /**
    * Get novel by ID
@@ -45,7 +45,7 @@ export const novelApi = {
     title: string
     author: string
     target_chapters: number
-  }) => apiClient.post<NovelDTO>('/novels', data) as Promise<NovelDTO>,
+  }) => apiClient.post<NovelDTO>('/novels/', data) as Promise<NovelDTO>,
 
   /**
    * Delete a novel
