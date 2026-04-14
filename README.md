@@ -4,13 +4,26 @@
 <img width="400" height="300" alt="微信图片_20260415003740_893_102" src="https://github.com/user-attachments/assets/71f083b8-a787-4eaf-a927-b15185a4f317" />
 
 
-> AI 驱动的长篇小说创作平台 — 自动驾驶生成、知识图谱管理、风格分析一体化。
+> AI 驱动的长篇小说创作平台，从一个故事种子开始，逐步建立世界观、人物与章节工作流。
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.5-green.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+## 作者第一步：先写下你的故事种子
+
+第一次打开 PlotPilot，不需要先理解全部模块。更自然的使用方式是：
+
+1. 先用一句话写下故事 premise
+2. 让系统生成并补全世界观、角色、地点与主线
+3. 再进入工作台持续写作、审稿、补设定和跑自动驾驶
+
+如果你是第一次体验，建议把 PlotPilot 当作“小说起步向导 + 长篇工作台”，而不是先把它当成一套需要逐个学习的后台系统。
+
+## 你可以用 PlotPilot 做什么
+
+- 从一句梗概建档，再逐步进入完整书稿生产
 - 自动驾驶模式：后台守护进程持续生成章节，支持 SSE 实时流式推送
 - Story Bible：人物、地点、世界设定的结构化管理
 - 知识图谱：自动提取故事三元组，语义检索历史内容
@@ -33,6 +46,14 @@
 | 可视化 | ECharts |
 
 ## 快速开始
+
+### 首次体验推荐路径
+
+启动前后端后，建议按下面顺序体验一遍：
+
+1. 在首页输入一句故事创意，创建新书
+2. 完成系统提供的新书设置向导，先确认世界观、人物、地图和主线
+3. 进入工作台后再开始章节写作、知识图谱维护和自动驾驶生成
 
 ### 环境要求
 

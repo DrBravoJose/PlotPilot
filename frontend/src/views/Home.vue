@@ -7,8 +7,8 @@
         <!-- Header -->
         <header class="header">
           <div class="header-content">
-            <h1 class="title">书稿工作台</h1>
-            <p class="subtitle">从一句梗概到完整书稿，结构规划与校阅一站完成</p>
+            <h1 class="title">先从一句故事种子开始</h1>
+            <p class="subtitle">先写 premise，系统再带你完成设定起步、主线确认与进入工作台</p>
           </div>
         </header>
 
@@ -18,7 +18,7 @@
             <div class="create-header">
               <div class="create-title-wrap">
                 <span class="create-icon">✨</span>
-                <h3 class="create-title">新建书目</h3>
+                <h3 class="create-title">第一步：写下故事种子</h3>
               </div>
               <n-button text type="primary" @click="showAdvanced = !showAdvanced">
                 <template #icon>
@@ -32,12 +32,16 @@
               ref="createInputRef"
               v-model:value="newBook.premise"
               type="textarea"
-              placeholder="描述你想写的故事…&#10;&#10;例如：程序员穿越成状元，用工程思维整顿吏治。"
+              placeholder="先用一句话描述你想写的故事。&#10;&#10;例如：程序员穿越成状元，用工程思维整顿吏治。"
               :rows="4"
               :disabled="creating"
               size="large"
               class="premise-input"
             />
+
+            <p class="create-tip">
+              推荐先写清楚“主角是谁、处在什么局面、最强冲突或钩子是什么”，后面的向导会继续帮你补齐世界观、人物和主线。
+            </p>
 
             <div v-show="showAdvanced" class="advanced-settings">
               <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen">
@@ -76,7 +80,7 @@
                 <template #icon>
                   <n-icon><IconSpark /></n-icon>
                 </template>
-                建档并进入工作台
+                建档并开始向导
               </n-button>
             </n-space>
           </n-space>
@@ -127,12 +131,12 @@
               <span class="empty-icon">📚</span>
             </div>
             <h3 class="empty-title">还没有书目</h3>
-            <p class="empty-desc">在上方输入你的故事创意，开启创作之旅</p>
+            <p class="empty-desc">先在上方写一句故事种子，系统会带你完成起步设定</p>
             <n-button type="primary" size="large" round @click="focusCreateInput">
               <template #icon>
                 <n-icon><IconSpark /></n-icon>
               </template>
-              创建第一本书
+              写下第一句故事
             </n-button>
           </div>
 
@@ -616,6 +620,13 @@ onMounted(() => {
 .premise-input :deep(textarea) {
   font-size: 15px;
   line-height: 1.6;
+}
+
+.create-tip {
+  margin: -6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #64748b;
 }
 
 .advanced-settings {
