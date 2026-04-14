@@ -12,7 +12,6 @@ from application.blueprint.services.continuous_planning_service import Continuou
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
-from domain.ai.services.llm_service import LLMService
 from application.paths import get_db_path
 from interfaces.api.dependencies import get_database
 
@@ -63,25 +62,13 @@ def get_service() -> ContinuousPlanningService:
     story_node_repo = StoryNodeRepository(db_path)
     chapter_element_repo = ChapterElementRepository(db_path)
 
-    # 获取 LLM 服务
-    import os
-    from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
-    from infrastructure.ai.config.settings import Settings
-
-    llm_service = None
-    api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
-    if api_key:
-        settings = Settings(
-            api_key=api_key.strip(),
-            base_url=os.getenv("ANTHROPIC_BASE_URL")
-        )
-        try:
-            llm_service = AnthropicProvider(settings)
-        except Exception:
-            pass
-
     from application.world.services.bible_service import BibleService
-    from interfaces.api.dependencies import get_bible_repository
+    from interfaces.api.dependencies import get_bible_repository, get_llm_service
+    from infrastructure.ai.providers.mock_provider import MockProvider
+
+    llm_service = get_llm_service()
+    if isinstance(llm_service, MockProvider):
+        llm_service = None
 
     bible_service = BibleService(get_bible_repository())
 

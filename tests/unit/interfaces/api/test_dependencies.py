@@ -1,8 +1,16 @@
 """测试依赖注入配置"""
 import os
-import pytest
-from unittest.mock import patch, MagicMock
-from interfaces.api.dependencies import get_vector_store
+import sys
+import types
+from unittest.mock import MagicMock, patch
+
+anthropic_stub = types.ModuleType("anthropic")
+anthropic_stub.Anthropic = object
+anthropic_stub.AsyncAnthropic = object
+sys.modules.setdefault("anthropic", anthropic_stub)
+
+from interfaces.api.dependencies import get_llm_service, get_vector_store
+from infrastructure.ai.providers.mock_provider import MockProvider
 
 
 class TestGetVectorStore:
@@ -99,3 +107,58 @@ class TestGetVectorStore:
                     port=6333,
                     api_key=None
                 )
+
+
+class TestGetLlmService:
+    """测试 get_llm_service 依赖注入函数"""
+
+    def test_get_llm_service_returns_openai_provider_for_minimax(self):
+        """LLM_PROVIDER=minimax 时走 OpenAI 兼容 provider。"""
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_PROVIDER": "minimax",
+                "MINIMAX_API_KEY": "test-minimax-key",
+            },
+            clear=True,
+        ):
+            with patch(
+                "infrastructure.ai.providers.openai_provider.OpenAIProvider"
+            ) as mock_openai_provider:
+                mock_instance = MagicMock()
+                mock_openai_provider.return_value = mock_instance
+
+                result = get_llm_service()
+
+                assert result is mock_instance
+                mock_openai_provider.assert_called_once()
+                settings = mock_openai_provider.call_args.args[0]
+                assert settings.api_key == "test-minimax-key"
+                assert settings.base_url == "https://api.minimaxi.com/v1"
+
+    def test_get_llm_service_returns_mock_for_minimax_without_key(self):
+        """LLM_PROVIDER=minimax 但未配置 key 时回退 MockProvider。"""
+        with patch.dict(os.environ, {"LLM_PROVIDER": "minimax"}, clear=True):
+            result = get_llm_service()
+            assert isinstance(result, MockProvider)
+
+    def test_get_llm_service_returns_anthropic_provider_when_configured(self):
+        """Anthropic 现有分支保持不变。"""
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-anthropic-key",
+            },
+            clear=True,
+        ):
+            with patch(
+                "infrastructure.ai.providers.anthropic_provider.AnthropicProvider"
+            ) as mock_anthropic:
+                mock_instance = MagicMock()
+                mock_anthropic.return_value = mock_instance
+
+                result = get_llm_service()
+
+                assert result is mock_instance
+                mock_anthropic.assert_called_once()

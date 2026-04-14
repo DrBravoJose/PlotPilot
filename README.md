@@ -59,9 +59,10 @@ pip install -r requirements.txt
 
 # 配置环境变量
 cp .env.example .env
-# 编辑 .env，至少填写以下任一 LLM 凭证：
-#   ANTHROPIC_API_KEY   — 使用 Claude 模型
-#   ARK_API_KEY         — 使用 ByteDance Doubao 模型
+# 编辑 .env，先选择 LLM_PROVIDER，再填写对应凭证：
+#   LLM_PROVIDER=anthropic + ANTHROPIC_API_KEY
+#   LLM_PROVIDER=openai    + OPENAI_API_KEY
+#   LLM_PROVIDER=minimax   + MINIMAX_API_KEY
 ```
 
 ### 3. 启动向量数据库（可选）
@@ -106,6 +107,13 @@ npm run dev
 | 变量 | 必填 | 说明 |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | 二选一 | Anthropic Claude API 密钥 |
+| `LLM_PROVIDER` | 否 | 主 LLM 提供商，可选 `anthropic` / `openai` / `minimax` |
+| `OPENAI_API_KEY` | 否 | OpenAI API 密钥 |
+| `OPENAI_BASE_URL` | 否 | OpenAI 兼容网关地址 |
+| `OPENAI_MODEL` | 否 | OpenAI 默认模型，默认 `gpt-4o` |
+| `MINIMAX_API_KEY` | 否 | MiniMax API 密钥 |
+| `MINIMAX_BASE_URL` | 否 | MiniMax OpenAI 兼容地址，默认 `https://api.minimaxi.com/v1` |
+| `MINIMAX_MODEL` | 否 | MiniMax 默认模型，默认 `MiniMax-M2.5` |
 | `ARK_API_KEY` | 二选一 | ByteDance Ark/Doubao API 密钥 |
 | `ARK_BASE_URL` | 否 | Ark API 地址，默认北京节点 |
 | `ARK_MODEL` | 否 | Doubao 模型 ID，默认 `doubao-seed-2-0-mini-260215` |

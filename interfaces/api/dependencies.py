@@ -29,7 +29,6 @@ from infrastructure.persistence.database.story_node_repository import StoryNodeR
 from infrastructure.persistence.database.sqlite_cast_repository import SqliteCastRepository
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
-from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
 from infrastructure.ai.config.settings import Settings
 
 from application.core.services.novel_service import NovelService
@@ -111,6 +110,34 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
             )
         return None
     return Settings(api_key=key, base_url=_openai_base_url())
+
+
+def _minimax_api_key() -> Optional[str]:
+    raw = os.getenv("MINIMAX_API_KEY")
+    if raw is None:
+        return None
+    key = raw.strip()
+    return key or None
+
+
+def _minimax_base_url() -> str:
+    u = os.getenv("MINIMAX_BASE_URL")
+    if u and u.strip():
+        return u.strip()
+    # Official mainland-compatible OpenAI endpoint.
+    return "https://api.minimaxi.com/v1"
+
+
+def _minimax_settings(require_key: bool = True) -> Optional[Settings]:
+    """构建 MiniMax Settings；走 OpenAI 兼容接口。"""
+    key = _minimax_api_key()
+    if not key:
+        if require_key:
+            raise ValueError(
+                "Set MINIMAX_API_KEY (optional: MINIMAX_BASE_URL)"
+            )
+        return None
+    return Settings(api_key=key, base_url=_minimax_base_url())
 
 
 def get_storage() -> FileStorage:
@@ -311,17 +338,22 @@ def get_hosted_write_service() -> HostedWriteService:
 
 
 def get_llm_service():
-    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
+    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI / MiniMax / Anthropic，无配置用 Mock）。供多模块复用。"""
     provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
     
-    if provider == "openai":
-        settings = _openai_settings(require_key=False)
+    if provider in {"openai", "minimax"}:
+        settings = (
+            _minimax_settings(require_key=False)
+            if provider == "minimax"
+            else _openai_settings(require_key=False)
+        )
         if settings:
             from infrastructure.ai.providers.openai_provider import OpenAIProvider
             return OpenAIProvider(settings)
     else:
         settings = _anthropic_settings(require_key=False)
         if settings:
+            from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
             return AnthropicProvider(settings)
             
     from infrastructure.ai.providers.mock_provider import MockProvider
@@ -905,4 +937,3 @@ def get_foreshadow_ledger_service():
     """
     from application.analyst.services.foreshadow_ledger_service import ForeshadowLedgerService
     return ForeshadowLedgerService(get_foreshadowing_repository())
-
