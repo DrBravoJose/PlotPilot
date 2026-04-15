@@ -1,4 +1,4 @@
-"""OpenAI LLM 提供商实现"""
+"""OpenAI-compatible LLM 提供商实现"""
 import logging
 import os
 from typing import AsyncIterator
@@ -13,14 +13,18 @@ from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
-# 从环境变量读取模型配置，默认使用 gpt-4o
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+def _default_model() -> str:
+    """根据 provider 解析默认模型，支持 OpenAI 兼容提供商复用。"""
+    provider = os.getenv("LLM_PROVIDER", "openai").lower()
+    if provider == "minimax":
+        return os.getenv("MINIMAX_MODEL") or os.getenv("OPENAI_MODEL", "MiniMax-M2.7")
+    return os.getenv("OPENAI_MODEL", "gpt-4o")
 
 
 class OpenAIProvider(BaseProvider):
-    """OpenAI LLM 提供商实现
+    """OpenAI-compatible LLM 提供商实现
     
-    使用 OpenAI API 实现 LLM 服务。
+    使用 OpenAI Chat Completions 兼容接口实现 LLM 服务。
     """
 
     def __init__(self, settings: Settings):
@@ -46,6 +50,9 @@ class OpenAIProvider(BaseProvider):
             
         self.async_client = AsyncOpenAI(**client_kwargs)
 
+    def _resolved_model(self, config: GenerationConfig) -> str:
+        return config.model or self.settings.default_model or _default_model()
+
     async def generate(
         self,
         prompt: Prompt,
@@ -68,13 +75,17 @@ class OpenAIProvider(BaseProvider):
                 {"role": "system", "content": prompt.system},
                 {"role": "user", "content": prompt.user}
             ]
-            
-            response = await self.async_client.chat.completions.create(
-                model=config.model or DEFAULT_MODEL,
-                messages=messages,
-                temperature=config.temperature,
-                max_tokens=config.max_tokens,
-            )
+
+            request_kwargs = {
+                "model": self._resolved_model(config),
+                "messages": messages,
+                "temperature": config.temperature,
+                "max_tokens": config.max_tokens,
+            }
+            if config.response_format:
+                request_kwargs["response_format"] = config.response_format
+
+            response = await self.async_client.chat.completions.create(**request_kwargs)
             
             if not response.choices or not response.choices[0].message.content:
                 raise RuntimeError("API returned empty content")
@@ -119,7 +130,7 @@ class OpenAIProvider(BaseProvider):
             ]
             
             stream = await self.async_client.chat.completions.create(
-                model=config.model or DEFAULT_MODEL,
+                model=self._resolved_model(config),
                 messages=messages,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,

@@ -254,18 +254,45 @@ function formatWords(n) {
 
 // API 调用
 const base = () => `/api/v1/autopilot/${props.novelId}`
+const REQUEST_TIMEOUT_MS = 10000
+
+function isAbortError(error) {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+async function fetchWithTimeout(input, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    })
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
 
 async function fetchStatus() {
-  const res = await fetch(`${base()}/status`)
-  if (res.status === 404) {
-    clearStatusPoll()
-    status.value = null
-    statusPollDisabled.value = true
-    return
-  }
-  if (res.ok) {
-    status.value = await res.json()
-    emit('status-change', status.value)
+  try {
+    const res = await fetchWithTimeout(`${base()}/status`)
+    if (res.status === 404) {
+      clearStatusPoll()
+      status.value = null
+      statusPollDisabled.value = true
+      return
+    }
+    if (res.ok) {
+      status.value = await res.json()
+      emit('status-change', status.value)
+    }
+  } catch (error) {
+    if (isAbortError(error)) {
+      console.warn('Autopilot status request timed out')
+      return
+    }
+    throw error
   }
 }
 
@@ -326,7 +353,7 @@ async function start() {
     const newAutoApprove = startConfig.value.auto_approve_mode
     
     if (currentTarget !== newTarget || currentAutoApprove !== newAutoApprove) {
-      const updateRes = await fetch(`/api/v1/novels/${props.novelId}`, {
+      const updateRes = await fetchWithTimeout(`/api/v1/novels/${props.novelId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -340,7 +367,7 @@ async function start() {
       
       // 更新全自动模式
       if (currentAutoApprove !== newAutoApprove) {
-        const approveRes = await fetch(`/api/v1/novels/${props.novelId}/auto-approve-mode`, {
+        const approveRes = await fetchWithTimeout(`/api/v1/novels/${props.novelId}/auto-approve-mode`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -355,7 +382,7 @@ async function start() {
     }
     
     // 然后启动自动驾驶
-    const res = await fetch(`${base()}/start`, {
+    const res = await fetchWithTimeout(`${base()}/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -368,6 +395,13 @@ async function start() {
     }
     else message.error('启动失败')
     await fetchStatus()
+  } catch (error) {
+    if (isAbortError(error)) {
+      message.error('启动请求超时，请检查当前页面是否连接到了正确后端')
+      return
+    }
+    console.error('Failed to start autopilot:', error)
+    message.error('启动失败')
   } finally {
     toggling.value = false
   }
@@ -375,31 +409,61 @@ async function start() {
 
 async function stop() {
   toggling.value = true
-  await fetch(`${base()}/stop`, { method: 'POST' })
-  message.info('已停止')
-  await fetchStatus()
-  toggling.value = false
+  try {
+    await fetchWithTimeout(`${base()}/stop`, { method: 'POST' })
+    message.info('已停止')
+    await fetchStatus()
+  } catch (error) {
+    if (isAbortError(error)) {
+      message.error('停止请求超时，请检查当前页面是否连接到了正确后端')
+      return
+    }
+    console.error('Failed to stop autopilot:', error)
+    message.error('停止失败')
+  } finally {
+    toggling.value = false
+  }
 }
 
 async function resume() {
   toggling.value = true
-  const res = await fetch(`${base()}/resume`, { method: 'POST' })
-  if (res.ok) message.success('已确认大纲，开始写作')
-  else { const e = await res.json(); message.error(e.detail || '恢复失败') }
-  await fetchStatus()
-  toggling.value = false
+  try {
+    const res = await fetchWithTimeout(`${base()}/resume`, { method: 'POST' })
+    if (res.ok) message.success('已确认大纲，开始写作')
+    else {
+      const e = await res.json()
+      message.error(e.detail || '恢复失败')
+    }
+    await fetchStatus()
+  } catch (error) {
+    if (isAbortError(error)) {
+      message.error('恢复请求超时，请检查当前页面是否连接到了正确后端')
+      return
+    }
+    console.error('Failed to resume autopilot:', error)
+    message.error('恢复失败')
+  } finally {
+    toggling.value = false
+  }
 }
 
 async function clearCircuitBreaker() {
   toggling.value = true
   try {
-    const res = await fetch(`${base()}/circuit-breaker/reset`, { method: 'POST' })
+    const res = await fetchWithTimeout(`${base()}/circuit-breaker/reset`, { method: 'POST' })
     if (res.ok) {
       message.success('已解除挂起并清零失败计数，可重新启动全托管')
       await fetchStatus()
     } else {
       message.error('操作失败，请确认后端已更新并稍后重试')
     }
+  } catch (error) {
+    if (isAbortError(error)) {
+      message.error('重置请求超时，请检查当前页面是否连接到了正确后端')
+      return
+    }
+    console.error('Failed to reset circuit breaker:', error)
+    message.error('操作失败，请确认后端已更新并稍后重试')
   } finally {
     toggling.value = false
   }

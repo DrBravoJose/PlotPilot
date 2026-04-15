@@ -50,6 +50,8 @@ from domain.novel.services.consistency_checker import ConsistencyChecker
 from domain.novel.services.storyline_manager import StorylineManager
 from domain.bible.services.relationship_engine import RelationshipEngine
 from domain.ai.services.vector_store import VectorStore
+from application.ai.services.llm_settings_service import LlmSettingsService
+from application.codex.services.openai_oauth_service import OpenAiOauthService
 
 if TYPE_CHECKING:
     from application.analyst.services.narrative_entity_state_service import NarrativeEntityStateService
@@ -110,6 +112,39 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
             )
         return None
     return Settings(api_key=key, base_url=_openai_base_url())
+
+
+def _minimax_api_key() -> Optional[str]:
+    raw = os.getenv("MINIMAX_API_KEY")
+    if raw is None:
+        return None
+    key = raw.strip()
+    return key or None
+
+
+def _minimax_base_url() -> str:
+    u = os.getenv("MINIMAX_BASE_URL")
+    if u and u.strip():
+        return u.strip()
+    return "https://api.minimaxi.com/v1"
+
+
+def _minimax_settings(require_key: bool = True) -> Optional[Settings]:
+    """构建 MiniMax Settings；走 OpenAI 兼容接口。"""
+    key = _minimax_api_key()
+    if not key:
+        if require_key:
+            raise ValueError("Set MINIMAX_API_KEY (optional: MINIMAX_BASE_URL)")
+        return None
+    return Settings(api_key=key, base_url=_minimax_base_url())
+
+
+def _with_default_model(settings: Optional[Settings], model: Optional[str]) -> Optional[Settings]:
+    if settings is None:
+        return None
+    if model:
+        settings.default_model = model
+    return settings
 
 
 def get_storage() -> FileStorage:
@@ -309,27 +344,68 @@ def get_hosted_write_service() -> HostedWriteService:
     )
 
 
+@lru_cache(maxsize=1)
+def get_llm_settings_service() -> LlmSettingsService:
+    return LlmSettingsService()
+
+
+@lru_cache(maxsize=1)
+def get_openai_oauth_service() -> OpenAiOauthService:
+    return OpenAiOauthService(auth_file=DATA_DIR / "system" / "openai_oauth.json")
+
+
 def get_llm_service():
-    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
-    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
-    
+    """获取 LLM 服务实例，优先读取运行时设置快照。"""
+    settings_service = get_llm_settings_service()
+    oauth_service = get_openai_oauth_service()
+    runtime = settings_service.get_settings(oauth_status=oauth_service.get_status())
+    provider = runtime["current_provider"]
+    provider_state = runtime["provider_settings"].get(provider, {})
+    selected_model = provider_state.get("selected_model")
+
+    settings_file = DATA_DIR / "system" / "llm_settings.json"
+    env_provider = os.getenv("LLM_PROVIDER")
+    if env_provider and not settings_file.exists():
+        provider = env_provider.lower()
+        provider_state = runtime["provider_settings"].get(provider, {})
+        selected_model = provider_state.get("selected_model")
+
     if provider == "openai":
-        settings = _openai_settings(require_key=False)
+        auth_mode = provider_state.get("auth_mode", "api_key")
+        if auth_mode == "oauth":
+            token = oauth_service.get_access_token()
+            if not token:
+                raise ValueError("OpenAI OAuth is selected but no access token is available")
+            settings = Settings(
+                api_key=token,
+                base_url=_openai_base_url(),
+                default_model=selected_model or "gpt-5.4",
+            )
+            from infrastructure.ai.providers.codex_provider import CodexProvider
+
+            auth_file = getattr(oauth_service, "auth_file", DATA_DIR / "system" / "openai_oauth.json")
+            return CodexProvider(settings, auth_file=auth_file)
+        else:
+            settings = _with_default_model(_openai_settings(require_key=False), selected_model)
         if settings:
-            try:
-                from infrastructure.ai.providers.openai_provider import OpenAIProvider
-                return OpenAIProvider(settings)
-            except ModuleNotFoundError as e:
-                logger.warning("OpenAI provider dependency missing, fallback to MockProvider: %s", e)
+            from infrastructure.ai.providers.openai_provider import OpenAIProvider
+
+            return OpenAIProvider(settings)
+
+    elif provider == "minimax":
+        settings = _with_default_model(_minimax_settings(require_key=False), selected_model)
+        if settings:
+            from infrastructure.ai.providers.openai_provider import OpenAIProvider
+
+            return OpenAIProvider(settings)
+
     else:
-        settings = _anthropic_settings(require_key=False)
+        settings = _with_default_model(_anthropic_settings(require_key=False), selected_model)
         if settings:
-            try:
-                from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
-                return AnthropicProvider(settings)
-            except ModuleNotFoundError as e:
-                logger.warning("Anthropic provider dependency missing, fallback to MockProvider: %s", e)
-            
+            from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
+
+            return AnthropicProvider(settings)
+
     from infrastructure.ai.providers.mock_provider import MockProvider
     return MockProvider()
 
@@ -911,4 +987,3 @@ def get_foreshadow_ledger_service():
     """
     from application.analyst.services.foreshadow_ledger_service import ForeshadowLedgerService
     return ForeshadowLedgerService(get_foreshadowing_repository())
-

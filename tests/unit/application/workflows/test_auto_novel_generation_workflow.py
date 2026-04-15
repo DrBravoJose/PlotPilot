@@ -4,7 +4,7 @@ from unittest.mock import Mock, AsyncMock
 from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
 from application.engine.dtos.generation_result import GenerationResult
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
-from application.engine.services.context_builder import ContextBuilder
+from application.engine.services.context_builder import ContextBuilder, Beat
 from domain.novel.services.consistency_checker import ConsistencyChecker
 from domain.novel.services.storyline_manager import StorylineManager
 from domain.novel.repositories.plot_arc_repository import PlotArcRepository
@@ -29,6 +29,7 @@ def mock_context_builder():
             "total": 9250
         }
     }
+    builder.magnify_outline_to_beats.return_value = []
     # 不再需要 estimate_tokens 方法
     return builder
 
@@ -270,6 +271,93 @@ class TestBuildPrompt:
         assert "主线" in prompt.system
         assert "HIGH" in prompt.system
         assert "CTX" in prompt.system
+
+    def test_build_prompt_includes_continuation_context_for_later_beats(self, workflow):
+        """后续节拍应显式带入上一节拍尾部，避免断场。"""
+        prompt = workflow._build_prompt(
+            context="CTX",
+            outline="OL",
+            beat_prompt="当前节拍内容",
+            beat_index=1,
+            total_beats=3,
+            continuation_context="掏出来一看，是一条来自未知号码的短信，只有一行字：",
+        )
+
+        assert "上文末尾" in prompt.user
+        assert "未知号码的短信" in prompt.user
+        assert "无缝承接" in prompt.user
+
+
+class TestBeatContinuation:
+    """测试节拍续写与输出净化"""
+
+    @pytest.mark.asyncio
+    async def test_generate_chapter_strips_think_and_feeds_previous_beat_tail(
+        self,
+        mock_context_builder,
+        mock_consistency_checker,
+        mock_storyline_manager,
+        mock_plot_arc_repository,
+        mock_llm_service,
+    ):
+        mock_context_builder.magnify_outline_to_beats.return_value = [
+            Beat(description="节拍一", target_words=300, focus="sensory"),
+            Beat(description="节拍二", target_words=300, focus="dialogue"),
+        ]
+        mock_context_builder.build_beat_prompt.side_effect = [
+            "节拍一提示",
+            "节拍二提示",
+        ]
+        mock_context_builder.build_voice_anchor_system_section.return_value = ""
+
+        mock_llm_service.generate = AsyncMock(
+            side_effect=[
+                LLMResult(
+                    content="<think>先分析要求</think>\n掏出来一看，是一条来自未知号码的短信，只有一行字：",
+                    token_usage=TokenUsage(input_tokens=10, output_tokens=20),
+                ),
+                LLMResult(
+                    content="<think>继续写第二节拍</think>\n短信上只有七个字，像是贴着他的耳膜念出来。",
+                    token_usage=TokenUsage(input_tokens=10, output_tokens=20),
+                ),
+            ]
+        )
+
+        mock_state_extractor = Mock()
+        mock_state_extractor.extract_chapter_state = AsyncMock(
+            return_value=ChapterState(
+                new_characters=[],
+                character_actions=[],
+                relationship_changes=[],
+                foreshadowing_planted=[],
+                foreshadowing_resolved=[],
+                events=[],
+            )
+        )
+
+        workflow = AutoNovelGenerationWorkflow(
+            context_builder=mock_context_builder,
+            consistency_checker=mock_consistency_checker,
+            storyline_manager=mock_storyline_manager,
+            plot_arc_repository=mock_plot_arc_repository,
+            llm_service=mock_llm_service,
+            state_extractor=mock_state_extractor,
+        )
+
+        result = await workflow.generate_chapter(
+            novel_id="novel-1",
+            chapter_number=1,
+            outline="收到未知短信",
+            enable_beats=True,
+        )
+
+        assert "<think>" not in result.content
+        assert "未知号码的短信" in result.content
+        assert "短信上只有七个字" in result.content
+
+        second_prompt = mock_llm_service.generate.await_args_list[1].args[0]
+        assert "上文末尾" in second_prompt.user
+        assert "未知号码的短信" in second_prompt.user
 
 class TestConflictDetectionIntegration:
     """测试冲突检测集成"""
@@ -553,8 +641,7 @@ class TestStyleIntegration:
         assert mock_llm_service.generate.called
 
         # 获取传递给 LLM 的 prompt
-        call_args = mock_llm_service.generate.call_args
-        prompt = call_args[0][0]
+        prompt = mock_llm_service.generate.await_args_list[0].args[0]
 
         # 验证 prompt 包含风格指纹摘要
         assert "形容词密度" in prompt.system or "平均句长" in prompt.system

@@ -14,6 +14,11 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from application.ai.llm_output_sanitizer import (
+    build_continuation_excerpt,
+    extract_visible_delta,
+    sanitize_llm_output,
+)
 from domain.novel.entities.novel import Novel, NovelStage, AutopilotStatus
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.repositories.novel_repository import NovelRepository
@@ -596,7 +601,9 @@ class AutopilotDaemon:
         # 6. 🔑 节拍级幂等生成 + 增量落库
         start_beat = novel.current_beat_index or 0  # 断点续写：从上次中断的节拍继续
 
-        chapter_content = await self._get_existing_chapter_content(novel, chapter_num) or ""
+        chapter_content = sanitize_llm_output(
+            await self._get_existing_chapter_content(novel, chapter_num) or ""
+        )
 
         use_wf = self.chapter_workflow is not None and bundle is not None
 
@@ -610,6 +617,7 @@ class AutopilotDaemon:
                     return
 
                 beat_prompt = self.context_builder.build_beat_prompt(beat, i, len(beats))
+                continuation_context = build_continuation_excerpt(chapter_content)
                 if use_wf:
                     prompt = self.chapter_workflow.build_chapter_prompt(
                         bundle["context"],
@@ -622,13 +630,20 @@ class AutopilotDaemon:
                         total_beats=len(beats),
                         beat_target_words=int(beat.target_words),
                         voice_anchors=voice_anchors,
+                        continuation_context=continuation_context,
                     )
                     max_tokens = int(beat.target_words * 1.5)
                     cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
                     beat_content = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
                 else:
                     beat_content = await self._stream_one_beat(
-                        outline, context, beat_prompt, beat, novel=novel, voice_anchors=voice_anchors
+                        outline,
+                        context,
+                        beat_prompt,
+                        beat,
+                        novel=novel,
+                        voice_anchors=voice_anchors,
+                        continuation_context=continuation_context,
                     )
 
                 if beat_content.strip():
@@ -666,7 +681,13 @@ class AutopilotDaemon:
                 beat_content = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
             else:
                 beat_content = await self._stream_one_beat(
-                    outline, context, None, None, novel=novel, voice_anchors=voice_anchors
+                    outline,
+                    context,
+                    None,
+                    None,
+                    novel=novel,
+                    voice_anchors=voice_anchors,
+                    continuation_context=build_continuation_excerpt(chapter_content),
                 )
             if not self._is_still_running(novel):
                 logger.info(f"[{novel.novel_id}] 用户已停止，单段生成已中断")
@@ -923,7 +944,8 @@ class AutopilotDaemon:
         
         流式生成时会实时推送增量文字到 streaming_callback（如果设置）。
         """
-        content = ""
+        raw_content = ""
+        visible_content = ""
         stop_detected = asyncio.Event()
         watch_task = None
         nid = getattr(novel.novel_id, "value", novel.novel_id) if novel else None
@@ -945,11 +967,15 @@ class AutopilotDaemon:
             async for chunk in self.llm_service.stream_generate(prompt, config):
                 if novel is not None and stop_detected.is_set():
                     break
-                content += chunk
+                raw_content += chunk
                 
                 # 实时推送增量文字到全局流式队列
                 if novel is not None and chunk:
-                    await self._push_streaming_chunk(novel.novel_id.value, chunk)
+                    visible_content, visible_delta = extract_visible_delta(
+                        raw_content, visible_content
+                    )
+                    if visible_delta:
+                        await self._push_streaming_chunk(novel.novel_id.value, visible_delta)
                 
                 if novel is not None and stop_detected.is_set():
                     break
@@ -965,7 +991,7 @@ class AutopilotDaemon:
         if novel is not None:
             self._merge_autopilot_status_from_db(novel)
 
-        return content
+        return sanitize_llm_output(raw_content)
 
     async def _push_streaming_chunk(self, novel_id: str, chunk: str):
         """推送增量文字到全局流式队列，供 SSE 接口消费"""
@@ -973,10 +999,18 @@ class AutopilotDaemon:
         streaming_bus.publish(novel_id, chunk)
 
     async def _stream_one_beat(
-        self, outline, context, beat_prompt, beat, novel=None, voice_anchors: str = ""
+        self,
+        outline,
+        context,
+        beat_prompt,
+        beat,
+        novel=None,
+        voice_anchors: str = "",
+        continuation_context: str = "",
     ) -> str:
         """无 AutoNovelGenerationWorkflow 时的降级：爽文短 Prompt + 流式。"""
         va = (voice_anchors or "").strip()
+        cc = (continuation_context or "").strip()
         voice_block = ""
         if va:
             voice_block = (
@@ -997,6 +1031,10 @@ class AutopilotDaemon:
         user_parts.append(f"\n【本章大纲】\n{outline}")
         if beat_prompt:
             user_parts.append(f"\n{beat_prompt}")
+        if cc:
+            user_parts.append(
+                f"\n【上文末尾（必须无缝承接，不要重复）】\n{cc}"
+            )
         user_parts.append("\n\n开始撰写：")
 
         max_tokens = int(beat.target_words * 1.5) if beat else 3000
@@ -1010,6 +1048,7 @@ class AutopilotDaemon:
         from domain.novel.entities.chapter import Chapter, ChapterStatus
         from domain.novel.value_objects.novel_id import NovelId
 
+        content = sanitize_llm_output(content)
         existing = self.chapter_repository.get_by_novel_and_number(
             NovelId(novel.novel_id.value), chapter_node.number
         )
@@ -1167,4 +1206,3 @@ class AutopilotDaemon:
         
         except Exception as e:
             logger.warning(f"[{novel.novel_id}] 摘要生成失败: {e}")
-

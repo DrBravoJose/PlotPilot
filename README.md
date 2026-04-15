@@ -100,7 +100,7 @@ uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
 cd frontend
 npm install
 npm run dev
-# 前端运行在 http://localhost:3000
+# 前端运行在 http://localhost:3003
 ```
 
 ## 环境变量参考

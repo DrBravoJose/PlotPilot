@@ -18,3 +18,9 @@ try:
     __all__.append("OpenAIProvider")
 except ModuleNotFoundError:
     OpenAIProvider = None
+
+try:
+    from .codex_provider import CodexProvider
+    __all__.append("CodexProvider")
+except ModuleNotFoundError:
+    CodexProvider = None

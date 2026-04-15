@@ -58,6 +58,9 @@ class AnthropicProvider(BaseProvider):
         # 如果设置了 base_url，则使用代理；否则回退到官方 API
         self.proxy_base_url = settings.base_url
 
+    def _resolved_model(self, config: GenerationConfig) -> str:
+        return config.model or self.settings.default_model or DEFAULT_MODEL
+
     async def generate(
         self,
         prompt: Prompt,
@@ -76,15 +79,13 @@ class AnthropicProvider(BaseProvider):
             RuntimeError: 当 API 调用失败或返回空内容时
         """
         try:
-            # 构建请求参数
             create_kwargs = {
-                "model": config.model or DEFAULT_MODEL,
+                "model": self._resolved_model(config),
                 "temperature": config.temperature,
                 "max_tokens": config.max_tokens,
                 "system": prompt.system,
                 "messages": prompt.to_messages(),
             }
-            # 如果指定了 response_format，传递给 API 强制 JSON 输出
             if config.response_format:
                 create_kwargs["response_format"] = config.response_format
 
@@ -136,7 +137,7 @@ class AnthropicProvider(BaseProvider):
         }
 
         payload = {
-            "model": config.model or DEFAULT_MODEL,
+            "model": self._resolved_model(config),
             "max_tokens": config.max_tokens,
             "temperature": config.temperature,
             "system": prompt.system,

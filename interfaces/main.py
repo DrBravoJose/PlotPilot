@@ -52,6 +52,9 @@ from interfaces.api.v1.world import bible, cast, knowledge, knowledge_graph_rout
 # Blueprint module
 from interfaces.api.v1.blueprint import continuous_planning_routes, beat_sheet_routes, story_structure
 
+# System module
+from interfaces.api.v1.system import llm_settings_routes, openai_auth_routes
+
 # Engine module routes
 from interfaces.api.v1.engine import (
     generation,
@@ -309,6 +312,7 @@ if _cors_origins_env:
     _allowed_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
 else:
     _allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000",
+                        "http://localhost:3003", "http://127.0.0.1:3003",
                         "http://localhost:5173", "http://127.0.0.1:5173"]
 
 app.add_middleware(
@@ -337,6 +341,10 @@ app.include_router(worldbuilding_routes.router)
 app.include_router(continuous_planning_routes.router)
 app.include_router(beat_sheet_routes.router)
 app.include_router(story_structure.router, prefix="/api/v1")
+
+# System module routes
+app.include_router(llm_settings_routes.router, prefix="/api/v1")
+app.include_router(openai_auth_routes.router, prefix="/api/v1")
 
 # Engine module routes
 app.include_router(generation.router, prefix="/api/v1")
@@ -401,4 +409,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8005)

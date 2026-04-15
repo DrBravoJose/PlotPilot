@@ -1,6 +1,7 @@
 <template>
   <div class="home">
     <StatsSidebar @create-book="focusCreateInput" @refresh-list="handleRefreshList" />
+    <GlobalLlmPanel />
     <div class="home-content">
       <div class="home-bg" aria-hidden="true" />
       <div class="container">
@@ -262,6 +263,7 @@ import { useRouter } from 'vue-router'
 import { useMessage, NIcon } from 'naive-ui'
 import { novelApi, type NovelDTO } from '../api/novel'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
+import GlobalLlmPanel from '@/components/GlobalLlmPanel.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
 import { useStatsStore } from '@/stores/statsStore'
 

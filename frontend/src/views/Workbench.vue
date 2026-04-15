@@ -1,6 +1,7 @@
 <template>
   <div class="workbench">
     <StatsTopBar :slug="slug" />
+    <GlobalLlmPanel />
 
     <n-spin :show="pageLoading" class="workbench-spin" description="加载工作台…">
       <div class="workbench-inner">
@@ -70,6 +71,7 @@ import StatsTopBar from '../components/stats/StatsTopBar.vue'
 import ChapterList from '../components/workbench/ChapterList.vue'
 import WorkArea from '../components/workbench/WorkArea.vue'
 import SettingsPanel from '../components/workbench/SettingsPanel.vue'
+import GlobalLlmPanel from '../components/GlobalLlmPanel.vue'
 import ActPlanningModal from '../components/workbench/ActPlanningModal.vue'
 
 const route = useRoute()
