@@ -163,7 +163,7 @@
 import { ref, computed } from 'vue'
 import { useMessage } from 'naive-ui'
 import { planningApi } from '../../api/planning'
-import { workflowApi } from '../../api/workflow'
+import { API_BASE_URL } from '../../api/config'
 
 const props = defineProps<{ show: boolean; novelId: string }>()
 const emit = defineEmits<{
@@ -215,6 +215,7 @@ const confirming = ref(false)
 const generated = ref(false)
 const rawResult = ref<Record<string, unknown> | null>(null)
 const structurePreview = ref<{ type: string; title: string; description?: string }[]>([])
+const QUICK_PLAN_TIMEOUT_MS = 150000
 
 const nodeTypeLabel = (type: string) => {
   const map: Record<string, string> = { part: '部', volume: '卷', act: '幕', chapter: '章' }
@@ -234,6 +235,54 @@ const flattenStructure = (nodes: unknown[]): { type: string; title: string; desc
   return result
 }
 
+const hasPersistedStructure = async () => {
+  const structure = await planningApi.getStructure(props.novelId)
+  return Array.isArray(structure?.data?.nodes) && structure.data.nodes.length > 0
+}
+
+const runQuickPlanWithRecovery = async () => {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), QUICK_PLAN_TIMEOUT_MS)
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/novels/${props.novelId}/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'initial', dry_run: false }),
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const payload = await res.json() as { detail?: string }
+        detail = payload?.detail || ''
+      } catch {
+        detail = await res.text().catch(() => '')
+      }
+      throw new Error(detail || '生成失败，请确认 AI 密钥已配置')
+    }
+
+    return await res.json() as Record<string, unknown>
+  } catch (error) {
+    const aborted = error instanceof DOMException && error.name === 'AbortError'
+    if (!aborted) throw error
+
+    if (await hasPersistedStructure()) {
+      message.success('结构已在后台生成并写入，正在刷新...', { duration: 2500 })
+      await new Promise(resolve => setTimeout(resolve, 500))
+      emit('confirmed')
+      handleClose()
+      return null
+    }
+
+    message.warning('结构规划仍在后台执行，请稍后刷新查看结果', { duration: 4000 })
+    return null
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
 const doGenerate = async () => {
   loading.value = true
   try {
@@ -241,7 +290,9 @@ const doGenerate = async () => {
 
     if (planMode.value === 'quick') {
       // 快速模式：调用 plan_novel API（AI 自主决定结构）
-      res = await workflowApi.planNovel(props.novelId, 'initial', false) as unknown as Record<string, unknown>
+      const quickPlanResult = await runQuickPlanWithRecovery()
+      if (!quickPlanResult) return
+      res = quickPlanResult
 
       // plan_novel 直接写入了结构，显示成功消息并等待一下让用户看到
       message.success('AI 已自动生成并写入叙事结构，正在刷新...', { duration: 2000 })
