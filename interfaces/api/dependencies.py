@@ -32,6 +32,7 @@ from infrastructure.persistence.database.sqlite_timeline_repository import Sqlit
 from infrastructure.ai.config.settings import Settings
 from infrastructure.ai.provider_factory import DynamicLLMService, LLMProviderFactory
 from application.ai.llm_control_service import LLMControlService
+from application.codex.services.openai_oauth_service import OpenAiOauthService
 
 from application.core.services.novel_service import NovelService
 from application.core.services.chapter_service import ChapterService
@@ -128,8 +129,16 @@ def get_llm_control_service() -> LLMControlService:
 
 
 @lru_cache
+def get_openai_oauth_service() -> OpenAiOauthService:
+    return OpenAiOauthService()
+
+
+@lru_cache
 def get_llm_provider_factory() -> LLMProviderFactory:
-    return LLMProviderFactory(get_llm_control_service())
+    return LLMProviderFactory(
+        get_llm_control_service(),
+        get_openai_oauth_service(),
+    )
 
 
 def llm_runtime_is_mock(llm_service: Optional[LLMService] = None) -> bool:
@@ -954,4 +963,3 @@ def get_foreshadow_ledger_service():
     """
     from application.analyst.services.foreshadow_ledger_service import ForeshadowLedgerService
     return ForeshadowLedgerService(get_foreshadowing_repository())
-

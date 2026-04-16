@@ -17,7 +17,7 @@ from infrastructure.ai.url_utils import (
 
 logger = logging.getLogger(__name__)
 
-LLMProtocol = Literal['openai', 'anthropic', 'gemini']
+LLMProtocol = Literal['openai', 'anthropic', 'gemini', 'minimax']
 
 
 class LLMPreset(BaseModel):
@@ -39,6 +39,7 @@ class LLMProfile(BaseModel):
     protocol: LLMProtocol = 'openai'
     base_url: str = ''
     api_key: str = ''
+    auth_mode: Literal['api_key', 'oauth'] = 'api_key'
     model: str = ''
     temperature: float = 0.7
     max_tokens: int = 4096
@@ -120,6 +121,7 @@ class LLMControlService:
     _DEFAULT_ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
     _DEFAULT_GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
     _DEFAULT_ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-0-mini-260215')
+    _DEFAULT_MINIMAX_MODEL = os.getenv('MINIMAX_MODEL', 'MiniMax-M2.7')
 
     # ---- 内部 DB 辅助 ------------------------------------------------
 
@@ -146,6 +148,7 @@ class LLMControlService:
             protocol=row['protocol'],
             base_url=row['base_url'] or '',
             api_key=row['api_key'] or '',
+            auth_mode=(row['auth_mode'] if 'auth_mode' in row.keys() else 'api_key') or 'api_key',
             model=row['model'] or '',
             temperature=row['temperature'],
             max_tokens=row['max_tokens'],
@@ -164,6 +167,7 @@ class LLMControlService:
             protocol=p.protocol,
             base_url=p.base_url,
             api_key=p.api_key,
+            auth_mode=p.auth_mode,
             model=p.model,
             temperature=p.temperature,
             max_tokens=p.max_tokens,
@@ -195,6 +199,15 @@ class LLMControlService:
                 default_model=self._DEFAULT_OPENAI_MODEL,
                 description='OpenAI 官方接口（自动兼容底层 Responses API 与 Chat Completions）。',
                 tags=['official'],
+            ),
+            LLMPreset(
+                key='minimax',
+                label='MiniMax',
+                protocol='minimax',
+                default_base_url='https://api.minimaxi.com/v1',
+                default_model=self._DEFAULT_MINIMAX_MODEL,
+                description='MiniMax 官方 OpenAI-compatible 接口。',
+                tags=['official', 'domestic', 'preset'],
             ),
             LLMPreset(
                 key='claude-official',
@@ -319,7 +332,7 @@ class LLMControlService:
             row['sort_order'] = idx
             params_list.append((
                 row['id'], row['name'], row['preset_key'], row['protocol'],
-                row['base_url'], row['api_key'], row['model'],
+                row['base_url'], row['api_key'], row['auth_mode'], row['model'],
                 row['temperature'], row['max_tokens'], row['timeout_seconds'],
                 row['extra_headers'], row['extra_query'], row['extra_body'],
                 row['notes'], row['sort_order'],
@@ -327,10 +340,10 @@ class LLMControlService:
 
         db.execute_many(
             """INSERT INTO llm_profiles (
-                id, name, preset_key, protocol, base_url, api_key, model,
-                temperature, max_tokens, timeout_seconds,
+                id, name, preset_key, protocol, base_url, api_key, auth_mode,
+                model, temperature, max_tokens, timeout_seconds,
                 extra_headers, extra_query, extra_body, notes, sort_order
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             params_list,
         )
 
@@ -380,6 +393,18 @@ class LLMControlService:
             )
 
         if not profile.api_key.strip() or not profile.model.strip():
+            if not (profile.protocol == 'openai' and profile.auth_mode == 'oauth'):
+                return LLMRuntimeSummary(
+                    source='mock',
+                    active_profile_id=profile.id,
+                    active_profile_name=profile.name,
+                    protocol=profile.protocol,
+                    model=profile.model or None,
+                    base_url=profile.base_url or None,
+                    using_mock=True,
+                    reason='当前激活配置缺少 API Key 或模型名，运行时将退回 MockProvider',
+                )
+        if not profile.model.strip():
             return LLMRuntimeSummary(
                 source='mock',
                 active_profile_id=profile.id,
@@ -388,7 +413,7 @@ class LLMControlService:
                 model=profile.model or None,
                 base_url=profile.base_url or None,
                 using_mock=True,
-                reason='当前激活配置缺少 API Key 或模型名，运行时将退回 MockProvider',
+                reason='当前激活配置缺少模型名，运行时将退回 MockProvider',
             )
 
         return LLMRuntimeSummary(
@@ -465,6 +490,7 @@ class LLMControlService:
                         'name': profile.name.strip() or f'配置 {index + 1}',
                         'base_url': profile.base_url.strip(),
                         'api_key': profile.api_key.strip(),
+                        'auth_mode': profile.auth_mode,
                         'model': profile.model.strip(),
                     }
                 )
@@ -495,6 +521,14 @@ class LLMControlService:
                 model='',
             ),
             LLMProfile(
+                id='minimax-default',
+                name='MiniMax',
+                preset_key='minimax',
+                protocol='minimax',
+                base_url='https://api.minimaxi.com/v1',
+                model=self._DEFAULT_MINIMAX_MODEL,
+            ),
+            LLMProfile(
                 id='claude-official-default',
                 name='Claude / Anthropic',
                 preset_key='claude-official',
@@ -518,6 +552,7 @@ class LLMControlService:
         anthropic_key = (os.getenv('ANTHROPIC_API_KEY') or os.getenv('ANTHROPIC_AUTH_TOKEN') or '').strip()
         openai_key = (os.getenv('OPENAI_API_KEY') or '').strip()
         gemini_key = (os.getenv('GEMINI_API_KEY') or '').strip()
+        minimax_key = (os.getenv('MINIMAX_API_KEY') or '').strip()
         ark_key = (os.getenv('ARK_API_KEY') or '').strip()
 
         if anthropic_key and (llm_provider == 'anthropic' or not llm_provider):
@@ -526,7 +561,7 @@ class LLMControlService:
                 'base_url': (os.getenv('ANTHROPIC_BASE_URL') or '').strip() or profiles[1].base_url,
                 'model': (os.getenv('ANTHROPIC_MODEL') or '').strip() or profiles[1].model,
             })
-            active_profile_id = profiles[1].id
+            active_profile_id = profiles[2].id
         elif openai_key and (llm_provider == 'openai' or not llm_provider):
             profiles[0] = profiles[0].model_copy(update={
                 'name': 'OpenAI / 兼容网关',
@@ -536,13 +571,20 @@ class LLMControlService:
                 'model': (os.getenv('OPENAI_MODEL') or '').strip() or self._DEFAULT_OPENAI_MODEL,
             })
             active_profile_id = profiles[0].id
-        elif gemini_key:
-            profiles[2] = profiles[2].model_copy(update={
-                'api_key': gemini_key,
-                'base_url': (os.getenv('GEMINI_BASE_URL') or '').strip() or profiles[2].base_url,
-                'model': (os.getenv('GEMINI_MODEL') or '').strip() or profiles[2].model,
+        elif minimax_key and llm_provider == 'minimax':
+            profiles[1] = profiles[1].model_copy(update={
+                'api_key': minimax_key,
+                'base_url': (os.getenv('MINIMAX_BASE_URL') or '').strip() or profiles[1].base_url,
+                'model': (os.getenv('MINIMAX_MODEL') or '').strip() or self._DEFAULT_MINIMAX_MODEL,
             })
-            active_profile_id = profiles[2].id
+            active_profile_id = profiles[1].id
+        elif gemini_key:
+            profiles[3] = profiles[3].model_copy(update={
+                'api_key': gemini_key,
+                'base_url': (os.getenv('GEMINI_BASE_URL') or '').strip() or profiles[3].base_url,
+                'model': (os.getenv('GEMINI_MODEL') or '').strip() or profiles[3].model,
+            })
+            active_profile_id = profiles[3].id
         elif ark_key:
             profiles[0] = profiles[0].model_copy(update={
                 'name': '豆包 / Ark',

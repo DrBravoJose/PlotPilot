@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 
 from application.ai.llm_control_service import LLMControlService, LLMProfile
+from application.codex.services.openai_oauth_service import OpenAiOauthService
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult, LLMService
 from domain.ai.value_objects.prompt import Prompt
 from infrastructure.ai.config.settings import Settings
@@ -20,18 +21,33 @@ _DEFAULT_CONFIG = GenerationConfig()
 
 
 class LLMProviderFactory:
-    def __init__(self, control_service: Optional[LLMControlService] = None):
+    def __init__(
+        self,
+        control_service: Optional[LLMControlService] = None,
+        openai_oauth_service: Optional[OpenAiOauthService] = None,
+    ):
         self.control_service = control_service or LLMControlService()
+        self.openai_oauth_service = openai_oauth_service or OpenAiOauthService()
 
     def create_from_profile(self, profile: Optional[LLMProfile]) -> LLMService:
         if profile is None:
             return MockProvider()
 
         resolved = self.control_service.resolve_profile(profile)
-        if not resolved.api_key.strip() or not resolved.model.strip():
+        if not resolved.model.strip():
             return MockProvider()
 
-        settings = self._profile_to_settings(resolved)
+        api_key = resolved.api_key.strip()
+        if resolved.protocol == 'openai' and resolved.auth_mode == 'oauth':
+            oauth_status = self.openai_oauth_service.get_status()
+            if oauth_status.get('status') != 'connected':
+                return MockProvider()
+            api_key = (self.openai_oauth_service.get_access_token() or '').strip()
+
+        if not api_key:
+            return MockProvider()
+
+        settings = self._profile_to_settings(resolved, api_key=api_key)
         if resolved.protocol == 'anthropic':
             return AnthropicProvider(settings)
         if resolved.protocol == 'gemini':
@@ -41,7 +57,7 @@ class LLMProviderFactory:
     def create_active_provider(self) -> LLMService:
         return self.create_from_profile(self.control_service.resolve_active_profile())
 
-    def _profile_to_settings(self, profile: LLMProfile) -> Settings:
+    def _profile_to_settings(self, profile: LLMProfile, api_key: Optional[str] = None) -> Settings:
         if profile.protocol == 'anthropic':
             normalized_base_url = normalize_anthropic_base_url(profile.base_url)
         elif profile.protocol == 'gemini':
@@ -53,7 +69,7 @@ class LLMProviderFactory:
             default_model=profile.model,
             default_temperature=profile.temperature,
             default_max_tokens=profile.max_tokens,
-            api_key=profile.api_key,
+            api_key=api_key if api_key is not None else profile.api_key,
             base_url=normalized_base_url,
             timeout_seconds=profile.timeout_seconds,
             extra_headers=profile.extra_headers,

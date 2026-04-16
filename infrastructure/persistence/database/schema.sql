@@ -600,9 +600,10 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL DEFAULT '',
     preset_key TEXT NOT NULL DEFAULT 'custom-openai-compatible',
-    protocol TEXT NOT NULL DEFAULT 'openai' CHECK(protocol IN ('openai', 'anthropic', 'gemini')),
+    protocol TEXT NOT NULL DEFAULT 'openai' CHECK(protocol IN ('openai', 'anthropic', 'gemini', 'minimax')),
     base_url TEXT NOT NULL DEFAULT '',
     api_key TEXT NOT NULL DEFAULT '',
+    auth_mode TEXT NOT NULL DEFAULT 'api_key' CHECK(auth_mode IN ('api_key', 'oauth')),
     model TEXT NOT NULL DEFAULT '',
     temperature REAL NOT NULL DEFAULT 0.7,
     max_tokens INTEGER NOT NULL DEFAULT 4096,
@@ -617,6 +618,5 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
-
 
 

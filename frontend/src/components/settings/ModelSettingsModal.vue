@@ -152,6 +152,7 @@ const isUnifiedMode = ref(true)
 
 const providerOptions = [
   { label: 'OpenAI 兼容', value: 'openai' },
+  { label: 'MiniMax', value: 'minimax' },
   { label: 'Anthropic / Claude', value: 'anthropic' },
   { label: 'Gemini', value: 'gemini' },
 ]
@@ -185,6 +186,14 @@ const formData = reactive<ModelRoleConfig>({
   knowledge_model_base_url: '',
   knowledge_model: '',
 })
+
+function presetKeyForProvider(provider: string, baseUrl: string): string {
+  if (provider === 'minimax') return 'minimax'
+  if (provider === 'openai' && !baseUrl.trim()) return 'openai-official'
+  if (provider === 'anthropic') return 'claude-official'
+  if (provider === 'gemini') return 'gemini-official'
+  return 'custom-openai-compatible'
+}
 
 async function loadData() {
   try {
@@ -245,7 +254,8 @@ async function handleSave() {
       extra_query: {},
       extra_body: {},
       notes: '',
-      preset_key: 'custom-openai-compatible',
+      auth_mode: 'api_key',
+      preset_key: presetKeyForProvider(formData.default_model_provider, formData.default_model_base_url),
     }
 
     if (profiles.length > 0 && profiles[0].id === mainProfile.id) {
@@ -272,7 +282,8 @@ async function handleSave() {
           extra_query: {},
           extra_body: {},
           notes: '',
-          preset_key: 'custom-openai-compatible',
+          auth_mode: 'api_key',
+          preset_key: presetKeyForProvider(provider, url),
         }
         if (existing >= 0) {
           profiles[existing] = roleProfile

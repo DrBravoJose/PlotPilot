@@ -144,6 +144,51 @@
               <n-select v-model:value="selectedProfile.protocol" :options="protocolOptions" />
             </div>
 
+            <div v-if="selectedProfileSupportsOauth" class="llm-field span-2">
+              <label class="llm-label">认证方式</label>
+              <n-radio-group v-model:value="selectedProfile.auth_mode">
+                <n-space :size="12">
+                  <n-radio value="api_key">API Key</n-radio>
+                  <n-radio value="oauth">OAuth</n-radio>
+                </n-space>
+              </n-radio-group>
+              <n-alert type="info" :show-icon="false" class="llm-tip" style="margin-top: 8px">
+                <n-space vertical :size="6">
+                  <n-space align="center" :size="8" wrap>
+                    <n-tag :type="openAiReady ? 'success' : 'warning'" size="small" round>
+                      OAuth {{ openAiReady ? '已就绪' : '未就绪' }}
+                    </n-tag>
+                    <n-tag :type="oauthStatusTagType" size="small" round>
+                      {{ oauthStatusMessage }}
+                    </n-tag>
+                  </n-space>
+                  <n-text depth="3" style="font-size: 12px">
+                    {{ openAiAuthHint }}
+                  </n-text>
+                  <n-space :size="8" wrap>
+                    <n-button
+                      v-if="selectedProfile.auth_mode === 'oauth'"
+                      type="primary"
+                      size="small"
+                      :loading="authLoading"
+                      @click="handleOpenAiLogin"
+                    >
+                      登录 OAuth
+                    </n-button>
+                    <n-button
+                      v-if="selectedProfile.auth_mode === 'oauth' && oauthStatus.status === 'connected'"
+                      secondary
+                      size="small"
+                      :loading="authLoading"
+                      @click="handleOpenAiLogout"
+                    >
+                      退出登录
+                    </n-button>
+                  </n-space>
+                </n-space>
+              </n-alert>
+            </div>
+
             <div class="llm-field span-2">
               <label class="llm-label">Base URL</label>
               <n-input v-model:value="selectedProfile.base_url" placeholder="可填官方地址，也可填兼容网关地址" />
@@ -155,6 +200,7 @@
                 v-model:value="selectedProfile.api_key"
                 type="password"
                 show-password-on="click"
+                :disabled="selectedProfileSupportsOauth && selectedProfile.auth_mode === 'oauth'"
                 placeholder="本地保存；仅用于当前项目"
               />
             </div>
@@ -173,7 +219,7 @@
                   secondary
                   size="small"
                   :loading="fetchingModels"
-                  :disabled="!selectedProfile.api_key"
+                  :disabled="!selectedProfile.api_key && !(selectedProfileSupportsOauth && selectedProfile.auth_mode === 'oauth')"
                   @click="handleFetchModels"
                 >
                   拉取模型
@@ -239,6 +285,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
   llmControlApi,
+  type OpenAiAuthStatus,
   type LLMControlPanelData,
   type LLMPreset,
   type LLMProfile,
@@ -271,7 +318,9 @@ const loading = ref(false)
 const saving = ref(false)
 const testing = ref(false)
 const fetchingModels = ref(false)
+const authLoading = ref(false)
 const fetchedModels = ref<ModelItem[]>([])
+const oauthStatus = ref<OpenAiAuthStatus>({ status: 'disconnected', message: '' })
 const selectedProfileId = ref('')
 const extraHeadersText = ref('{}')
 const extraQueryText = ref('{}')
@@ -281,6 +330,7 @@ const sidebarListRef = ref<HTMLElement | null>(null)
 
 const protocolOptions = [
   { label: 'OpenAI 兼容', value: 'openai' },
+  { label: 'MiniMax', value: 'minimax' },
   { label: 'Anthropic / Claude 兼容', value: 'anthropic' },
   { label: 'Gemini', value: 'gemini' },
 ]
@@ -303,6 +353,41 @@ const selectedProfile = computed(() =>
 const selectedPreset = computed<LLMPreset | null>(() => {
   if (!selectedProfile.value || !panelData.value) return null
   return panelData.value.presets.find((preset) => preset.key === selectedProfile.value?.preset_key) || null
+})
+
+const selectedProfileSupportsOauth = computed(() =>
+  selectedProfile.value?.protocol === 'openai' && selectedProfile.value?.preset_key === 'openai-official'
+)
+
+const openAiReady = computed(() =>
+  selectedProfile.value?.auth_mode !== 'oauth' || oauthStatus.value.status === 'connected'
+)
+
+const oauthStatusTagType = computed(() => {
+  switch (oauthStatus.value.status) {
+    case 'connected':
+      return 'success'
+    case 'pending':
+      return 'warning'
+    case 'error':
+      return 'error'
+    default:
+      return 'default'
+  }
+})
+
+const oauthStatusMessage = computed(() =>
+  oauthStatus.value.message || oauthStatus.value.status
+)
+
+const openAiAuthHint = computed(() => {
+  if (selectedProfile.value?.auth_mode !== 'oauth') {
+    return '当前为 API Key 模式。切换到 OAuth 后，登录状态会由后台自动校验。'
+  }
+  if (oauthStatus.value.status === 'connected') {
+    return 'OAuth 已连接。当前配置保存后会直接使用授权 token。'
+  }
+  return '点击登录会调用后台 OAuth 起始接口，并在必要时打开授权页面。'
 })
 
 const runtimeLabel = computed(() => {
@@ -328,6 +413,7 @@ async function handleFetchModels() {
       protocol: selectedProfile.value.protocol,
       base_url: selectedProfile.value.base_url,
       api_key: selectedProfile.value.api_key,
+      auth_mode: selectedProfile.value.auth_mode,
     })
     if (result.success && result.items.length > 0) {
       fetchedModels.value = result.items
@@ -399,6 +485,7 @@ function buildProfileFromPreset(preset?: LLMPreset): LLMProfile {
     protocol: (preset?.protocol || 'openai') as LLMProtocol,
     base_url: preset?.default_base_url || '',
     api_key: '',
+    auth_mode: preset?.key === 'openai-official' ? 'oauth' : 'api_key',
     model: preset?.default_model || '',
     temperature: 0.7,
     max_tokens: 4096,
@@ -451,8 +538,12 @@ function commitAdvancedEditors() {
 async function loadPanel() {
   loading.value = true
   try {
-    const data = await llmControlApi.getPanel()
+    const [data, oauth] = await Promise.all([
+      llmControlApi.getPanel(),
+      llmControlApi.getOpenAiStatus().catch(() => ({ status: 'disconnected', message: '' } as OpenAiAuthStatus)),
+    ])
     panelData.value = deepClone(data)
+    oauthStatus.value = oauth
     const persistedState = readUiState()
     const preferredId = persistedState.selectedProfileId || selectedProfileId.value
     const candidateId = preferredId && data.config.profiles.some((profile) => profile.id === preferredId)
@@ -538,6 +629,7 @@ function applyPresetToSelected() {
   const preset = panelData.value.presets.find((item) => item.key === selectedProfile.value?.preset_key)
   if (!preset) return
   selectedProfile.value.protocol = preset.protocol
+  selectedProfile.value.auth_mode = preset.key === 'openai-official' ? 'oauth' : 'api_key'
   if (preset.default_base_url) selectedProfile.value.base_url = preset.default_base_url
   if (preset.default_model) selectedProfile.value.model = preset.default_model
   if (!selectedProfile.value.name || selectedProfile.value.name === '新配置') {
@@ -609,16 +701,107 @@ async function testSelected() {
   }
 }
 
+let oauthPollTimer: number | null = null
+let oauthPollAttempts = 0
+
+async function refreshOauthStatus() {
+  oauthStatus.value = await llmControlApi.getOpenAiStatus()
+  if (oauthStatus.value.status !== 'pending') {
+    stopOauthPolling()
+  }
+  return oauthStatus.value
+}
+
+function startOauthPolling() {
+  stopOauthPolling()
+  oauthPollAttempts = 0
+  oauthPollTimer = window.setInterval(async () => {
+    oauthPollAttempts += 1
+    try {
+      const status = await refreshOauthStatus()
+      if (status.status === 'connected') {
+        stopOauthPolling()
+        return
+      }
+      if (status.status === 'error' || oauthPollAttempts >= 80) {
+        stopOauthPolling()
+      }
+    } catch {
+      if (oauthPollAttempts >= 80) {
+        stopOauthPolling()
+      }
+    }
+  }, 1500)
+}
+
+function stopOauthPolling() {
+  if (oauthPollTimer !== null) {
+    window.clearInterval(oauthPollTimer)
+    oauthPollTimer = null
+  }
+}
+
+async function handleOpenAiLogin() {
+  authLoading.value = true
+  try {
+    const result = await llmControlApi.startOpenAiAuth()
+    if (result.url) {
+      const opened = window.open(result.url, 'openai-oauth', 'popup=yes,width=540,height=720')
+      if (!opened) {
+        throw new Error('浏览器拦截了 OAuth 登录弹窗，请允许弹窗后重试')
+      }
+    }
+    await refreshOauthStatus().catch(() => {})
+    if (result.status === 'pending') {
+      startOauthPolling()
+    }
+    message.success('已发起 OpenAI OAuth 登录')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'OpenAI 登录失败')
+  } finally {
+    authLoading.value = false
+  }
+}
+
+async function handleOpenAiLogout() {
+  authLoading.value = true
+  try {
+    oauthStatus.value = await llmControlApi.logoutOpenAiAuth()
+    message.success('已退出 OpenAI OAuth')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'OpenAI 退出登录失败')
+  } finally {
+    stopOauthPolling()
+    authLoading.value = false
+  }
+}
+
+async function handleOauthMessage(event: MessageEvent) {
+  const payload = event.data
+  if (!payload || typeof payload !== 'object' || payload.type !== 'openai-oauth-complete') {
+    return
+  }
+  await refreshOauthStatus().catch(() => {})
+  if (payload.status === 'connected') {
+    message.success(payload.message || 'OpenAI OAuth 登录成功')
+    return
+  }
+  message.error(payload.message || 'OpenAI OAuth 登录失败')
+}
+
 watch(selectedProfileId, () => {
   syncJsonEditors()
   saveUiState()
 })
 
 onMounted(() => {
+  window.addEventListener('message', handleOauthMessage)
   void loadPanel()
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('message', handleOauthMessage)
+  stopOauthPolling()
   saveUiState()
 })
 </script>

@@ -245,6 +245,86 @@ def _apply_migration_files(conn: sqlite3.Connection) -> None:
             logger.warning(f"Migration file not found: {migration_path}")
 
 
+def _migrate_llm_profiles_schema(conn: sqlite3.Connection) -> None:
+    """补齐 llm_profiles 的 auth_mode，并放宽 protocol CHECK 以支持 minimax。"""
+    cur = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='llm_profiles' LIMIT 1"
+    )
+    if cur.fetchone() is None:
+        return
+
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(llm_profiles)").fetchall()}
+    needs_auth_mode = "auth_mode" not in cols
+
+    create_sql_row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='llm_profiles'"
+    ).fetchone()
+    create_sql = (create_sql_row[0] or "") if create_sql_row else ""
+    needs_protocol_upgrade = "'minimax'" not in create_sql
+
+    if not needs_auth_mode and not needs_protocol_upgrade:
+        return
+
+    conn.execute("ALTER TABLE llm_profiles RENAME TO llm_profiles_legacy")
+    conn.execute(
+        """
+        CREATE TABLE llm_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL DEFAULT '',
+            preset_key TEXT NOT NULL DEFAULT 'custom-openai-compatible',
+            protocol TEXT NOT NULL DEFAULT 'openai' CHECK(protocol IN ('openai', 'anthropic', 'gemini', 'minimax')),
+            base_url TEXT NOT NULL DEFAULT '',
+            api_key TEXT NOT NULL DEFAULT '',
+            auth_mode TEXT NOT NULL DEFAULT 'api_key' CHECK(auth_mode IN ('api_key', 'oauth')),
+            model TEXT NOT NULL DEFAULT '',
+            temperature REAL NOT NULL DEFAULT 0.7,
+            max_tokens INTEGER NOT NULL DEFAULT 4096,
+            timeout_seconds INTEGER NOT NULL DEFAULT 300,
+            extra_headers TEXT NOT NULL DEFAULT '{}',
+            extra_query TEXT NOT NULL DEFAULT '{}',
+            extra_body TEXT NOT NULL DEFAULT '{}',
+            notes TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO llm_profiles (
+            id, name, preset_key, protocol, base_url, api_key, auth_mode, model,
+            temperature, max_tokens, timeout_seconds, extra_headers, extra_query,
+            extra_body, notes, sort_order, created_at, updated_at
+        )
+        SELECT
+            id,
+            name,
+            preset_key,
+            protocol,
+            base_url,
+            api_key,
+            'api_key' AS auth_mode,
+            model,
+            temperature,
+            max_tokens,
+            timeout_seconds,
+            extra_headers,
+            extra_query,
+            extra_body,
+            notes,
+            sort_order,
+            created_at,
+            updated_at
+        FROM llm_profiles_legacy
+        """
+    )
+    conn.execute("DROP TABLE llm_profiles_legacy")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order)")
+    conn.commit()
+    logger.info("llm_profiles migration: added auth_mode and minimax protocol support")
+
+
 def _ensure_triple_provenance_table(conn: sqlite3.Connection) -> None:
     """旧库补齐 triple_provenance 表（schema.sql 对新库已包含）。"""
     conn.execute(
@@ -320,6 +400,7 @@ class DatabaseConnection:
         _apply_last_chapter_audit_columns(conn)
         _apply_character_enhancements(conn)
         _apply_chapter_summaries_enhancements(conn)
+        _migrate_llm_profiles_schema(conn)
         _ensure_triple_provenance_table(conn)
         _apply_migration_files(conn)
         conn.close()

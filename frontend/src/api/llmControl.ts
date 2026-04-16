@@ -1,6 +1,7 @@
 import { apiClient } from './config'
 
-export type LLMProtocol = 'openai' | 'anthropic' | 'gemini'
+export type LLMProtocol = 'openai' | 'anthropic' | 'gemini' | 'minimax'
+export type LLMAuthMode = 'api_key' | 'oauth'
 
 export interface LLMPreset {
   key: string
@@ -19,6 +20,7 @@ export interface LLMProfile {
   protocol: LLMProtocol
   base_url: string
   api_key: string
+  auth_mode: LLMAuthMode
   model: string
   temperature: number
   max_tokens: number
@@ -77,7 +79,14 @@ export interface FetchModelsPayload {
   protocol: string
   base_url: string
   api_key: string
+  auth_mode?: LLMAuthMode
   timeout_ms?: number
+}
+
+export interface OpenAiAuthStatus {
+  status: 'connected' | 'disconnected' | 'pending' | 'error'
+  message?: string
+  url?: string
 }
 
 export const llmControlApi = {
@@ -88,6 +97,12 @@ export const llmControlApi = {
     apiClient.post<LLMTestResult>('/llm-control/test', profile, { timeout: 120_000 }) as Promise<LLMTestResult>,
   fetchModels: (payload: FetchModelsPayload) =>
     apiClient.post<ModelListResponse>('/llm-control/models', payload, { timeout: 30_000 }) as Promise<ModelListResponse>,
+  getOpenAiStatus: () =>
+    apiClient.get<OpenAiAuthStatus>('/auth/openai/status') as Promise<OpenAiAuthStatus>,
+  startOpenAiAuth: () =>
+    apiClient.post<OpenAiAuthStatus>('/auth/openai/start', {}) as Promise<OpenAiAuthStatus>,
+  logoutOpenAiAuth: () =>
+    apiClient.post<OpenAiAuthStatus>('/auth/openai/logout', {}) as Promise<OpenAiAuthStatus>,
 }
 
 // ========== 提示词广场 API (Prompt Plaza) ==========

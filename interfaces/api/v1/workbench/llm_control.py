@@ -5,7 +5,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from application.ai.llm_control_service import (
@@ -15,6 +15,7 @@ from application.ai.llm_control_service import (
     LLMTestResult,
     LLMControlService,
 )
+from interfaces.api.dependencies import get_openai_oauth_service
 from infrastructure.ai.provider_factory import LLMProviderFactory
 from infrastructure.ai.prompt_manager import get_prompt_manager
 
@@ -32,6 +33,7 @@ class ModelListRequest(BaseModel):
     protocol: str = 'openai'
     base_url: str = ''
     api_key: str = ''
+    auth_mode: str = 'api_key'
     timeout_ms: int = 30000
 
 
@@ -65,7 +67,10 @@ def _normalize_model_items(data: Dict[str, Any]) -> List[ModelItem]:
 
 
 @router.post('/models', response_model=ModelListResponse)
-async def list_models(payload: ModelListRequest) -> ModelListResponse:
+async def list_models(
+    payload: ModelListRequest,
+    oauth_service=Depends(get_openai_oauth_service),
+) -> ModelListResponse:
     """根据当前配置的 endpoint 拉取模型列表（OpenAI / Anthropic 兼容）。"""
     candidate = payload.model_dump()
     if not candidate.get('api_key'):
@@ -75,7 +80,10 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
             candidate['api_key'] = active.api_key
 
     api_format = (candidate.get('protocol') or '').strip().lower()
+    auth_mode = (candidate.get('auth_mode') or 'api_key').strip().lower()
     api_key = (candidate.get('api_key') or '').strip()
+    if api_format == 'openai' and auth_mode == 'oauth' and not api_key:
+        api_key = (oauth_service.get_access_token() or '').strip()
     if not api_key:
         raise HTTPException(status_code=400, detail='API key is required to fetch model list')
 
