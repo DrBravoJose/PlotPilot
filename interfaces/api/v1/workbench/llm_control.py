@@ -73,17 +73,25 @@ async def list_models(
 ) -> ModelListResponse:
     """根据当前配置的 endpoint 拉取模型列表（OpenAI / Anthropic 兼容）。"""
     candidate = payload.model_dump()
+    api_format = (candidate.get('protocol') or '').strip().lower()
+    auth_mode = (candidate.get('auth_mode') or 'api_key').strip().lower()
+    if api_format == 'openai' and auth_mode == 'oauth':
+        status = oauth_service.get_status()
+        if status.get('status') != 'connected':
+            raise HTTPException(status_code=400, detail='Codex OAuth 未登录，无法拉取模型列表')
+        models = oauth_service.list_models()
+        return ModelListResponse(success=True, items=[
+            ModelItem(id=item['id'], name=item['name'], owned_by=item.get('owned_by', 'codex'))
+            for item in models
+        ], count=len(models))
+
     if not candidate.get('api_key'):
         # 尝试从当前激活配置中获取 key 作为 fallback
         active = _service.get_active_profile()
         if active:
             candidate['api_key'] = active.api_key
 
-    api_format = (candidate.get('protocol') or '').strip().lower()
-    auth_mode = (candidate.get('auth_mode') or 'api_key').strip().lower()
     api_key = (candidate.get('api_key') or '').strip()
-    if api_format == 'openai' and auth_mode == 'oauth' and not api_key:
-        api_key = (oauth_service.get_access_token() or '').strip()
     if not api_key:
         raise HTTPException(status_code=400, detail='API key is required to fetch model list')
 

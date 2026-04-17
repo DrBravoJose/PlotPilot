@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import AsyncIterator, Optional
 
 from application.ai.llm_control_service import LLMControlService, LLMProfile
@@ -7,10 +8,7 @@ from application.codex.services.openai_oauth_service import OpenAiOauthService
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult, LLMService
 from domain.ai.value_objects.prompt import Prompt
 from infrastructure.ai.config.settings import Settings
-from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
-from infrastructure.ai.providers.gemini_provider import GeminiProvider
 from infrastructure.ai.providers.mock_provider import MockProvider
-from infrastructure.ai.providers.openai_provider import OpenAIProvider
 from infrastructure.ai.url_utils import (
     normalize_anthropic_base_url,
     normalize_gemini_base_url,
@@ -42,16 +40,22 @@ class LLMProviderFactory:
             oauth_status = self.openai_oauth_service.get_status()
             if oauth_status.get('status') != 'connected':
                 return MockProvider()
-            api_key = (self.openai_oauth_service.get_access_token() or '').strip()
+            from infrastructure.ai.providers.codex_cli_provider import CodexCLIProvider
+
+            settings = self._profile_to_settings(resolved, api_key=None)
+            return CodexCLIProvider(settings)
 
         if not api_key:
             return MockProvider()
 
         settings = self._profile_to_settings(resolved, api_key=api_key)
         if resolved.protocol == 'anthropic':
+            from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
             return AnthropicProvider(settings)
         if resolved.protocol == 'gemini':
+            from infrastructure.ai.providers.gemini_provider import GeminiProvider
             return GeminiProvider(settings)
+        from infrastructure.ai.providers.openai_provider import OpenAIProvider
         return OpenAIProvider(settings)
 
     def create_active_provider(self) -> LLMService:
@@ -90,6 +94,15 @@ class DynamicLLMService(LLMService):
         return self.factory.create_active_provider()
 
     @staticmethod
+    async def _close_provider(provider: LLMService) -> None:
+        closer = getattr(provider, "aclose", None)
+        if closer is None:
+            return
+        maybe_awaitable = closer()
+        if inspect.isawaitable(maybe_awaitable):
+            await maybe_awaitable
+
+    @staticmethod
     def _merge_config(config: GenerationConfig, provider: LLMService) -> GenerationConfig:
         settings = getattr(provider, 'settings', None)
         if settings is None:
@@ -116,10 +129,16 @@ class DynamicLLMService(LLMService):
     async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
         provider = self._resolve_provider()
         effective_config = self._merge_config(config, provider)
-        return await provider.generate(prompt, effective_config)
+        try:
+            return await provider.generate(prompt, effective_config)
+        finally:
+            await self._close_provider(provider)
 
     async def stream_generate(self, prompt: Prompt, config: GenerationConfig) -> AsyncIterator[str]:
         provider = self._resolve_provider()
         effective_config = self._merge_config(config, provider)
-        async for chunk in provider.stream_generate(prompt, effective_config):
-            yield chunk
+        try:
+            async for chunk in provider.stream_generate(prompt, effective_config):
+                yield chunk
+        finally:
+            await self._close_provider(provider)

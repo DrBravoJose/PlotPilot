@@ -402,7 +402,22 @@ class LLMControlService:
                     model=profile.model or None,
                     base_url=profile.base_url or None,
                     using_mock=True,
-                    reason='当前激活配置缺少 API Key 或模型名，运行时将退回 MockProvider',
+                reason='当前激活配置缺少 API Key 或模型名，运行时将退回 MockProvider',
+            )
+        if profile.protocol == 'openai' and profile.auth_mode == 'oauth':
+            from application.codex.services.openai_oauth_service import OpenAiOauthService
+
+            oauth_status = OpenAiOauthService().get_status()
+            if oauth_status.get('status') != 'connected':
+                return LLMRuntimeSummary(
+                    source='mock',
+                    active_profile_id=profile.id,
+                    active_profile_name=profile.name,
+                    protocol=profile.protocol,
+                    model=profile.model or None,
+                    base_url=profile.base_url or None,
+                    using_mock=True,
+                    reason='当前激活配置需要 Codex OAuth 登录，运行时将退回 MockProvider',
                 )
         if not profile.model.strip():
             return LLMRuntimeSummary(
@@ -432,7 +447,8 @@ class LLMControlService:
         llm_service_factory: Callable[[LLMProfile], LLMService],
     ) -> LLMTestResult:
         resolved = self.resolve_profile(profile)
-        if not resolved.api_key.strip() or not resolved.model.strip():
+        oauth_profile = resolved.protocol == 'openai' and resolved.auth_mode == 'oauth'
+        if (not oauth_profile and not resolved.api_key.strip()) or not resolved.model.strip():
             return LLMTestResult(
                 ok=False,
                 provider_label=resolved.name,

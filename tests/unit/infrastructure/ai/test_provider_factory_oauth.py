@@ -21,8 +21,11 @@ class _StubOauthService:
     def get_access_token(self) -> str | None:
         return self._token
 
+    def list_models(self):
+        return []
 
-def test_create_from_profile_uses_oauth_token_for_openai_profile():
+
+def test_create_from_profile_uses_codex_provider_for_oauth_profile():
     profile = LLMProfile(
         id="openai-oauth",
         name="OpenAI OAuth",
@@ -38,11 +41,10 @@ def test_create_from_profile_uses_oauth_token_for_openai_profile():
         openai_oauth_service=_StubOauthService(status="connected", token="oauth-token"),
     )
 
-    with patch("infrastructure.ai.provider_factory.OpenAIProvider") as mock_provider:
+    with patch("infrastructure.ai.providers.codex_cli_provider.CodexCLIProvider") as mock_provider:
         factory.create_from_profile(profile)
 
     settings = mock_provider.call_args.args[0]
-    assert settings.api_key == "oauth-token"
     assert settings.default_model == "gpt-5.4"
 
 

@@ -167,13 +167,13 @@
                   </n-text>
                   <n-space :size="8" wrap>
                     <n-button
-                      v-if="selectedProfile.auth_mode === 'oauth'"
+                      v-if="selectedProfile.auth_mode === 'oauth' && showOauthLoginButton"
                       type="primary"
                       size="small"
                       :loading="authLoading"
                       @click="handleOpenAiLogin"
                     >
-                      登录 OAuth
+                      登录 Codex
                     </n-button>
                     <n-button
                       v-if="selectedProfile.auth_mode === 'oauth' && oauthStatus.status === 'connected'"
@@ -182,7 +182,7 @@
                       :loading="authLoading"
                       @click="handleOpenAiLogout"
                     >
-                      退出登录
+                      退出 Codex
                     </n-button>
                   </n-space>
                 </n-space>
@@ -292,6 +292,7 @@ import {
   type LLMProtocol,
   type ModelItem,
 } from '../../api/llmControl'
+import { getOpenAiOauthLoginVisibility, getOpenAiOauthStartFeedback } from './openaiOauthUi'
 
 interface Props {
   scrollStateKey?: string
@@ -380,14 +381,18 @@ const oauthStatusMessage = computed(() =>
   oauthStatus.value.message || oauthStatus.value.status
 )
 
+const showOauthLoginButton = computed(() =>
+  getOpenAiOauthLoginVisibility(oauthStatus.value.status)
+)
+
 const openAiAuthHint = computed(() => {
   if (selectedProfile.value?.auth_mode !== 'oauth') {
     return '当前为 API Key 模式。切换到 OAuth 后，登录状态会由后台自动校验。'
   }
   if (oauthStatus.value.status === 'connected') {
-    return 'OAuth 已连接。当前配置保存后会直接使用授权 token。'
+    return 'Codex OAuth 已连接。当前配置保存后会走 Codex 客户端额度通道。'
   }
-  return '点击登录会调用后台 OAuth 起始接口，并在必要时打开授权页面。'
+  return '点击登录会调用本机 Codex CLI 的 OAuth 登录；完成后当前配置将通过 Codex 客户端执行，而不是直连 OpenAI API。'
 })
 
 const runtimeLabel = computed(() => {
@@ -755,9 +760,14 @@ async function handleOpenAiLogin() {
     if (result.status === 'pending') {
       startOauthPolling()
     }
-    message.success('已发起 OpenAI OAuth 登录')
+    const feedback = getOpenAiOauthStartFeedback(result)
+    if (feedback.type === 'info') {
+      message.info(feedback.message)
+    } else {
+      message.success(feedback.message)
+    }
   } catch (error) {
-    message.error(error instanceof Error ? error.message : 'OpenAI 登录失败')
+    message.error(error instanceof Error ? error.message : 'Codex 登录失败')
   } finally {
     authLoading.value = false
   }
@@ -767,9 +777,9 @@ async function handleOpenAiLogout() {
   authLoading.value = true
   try {
     oauthStatus.value = await llmControlApi.logoutOpenAiAuth()
-    message.success('已退出 OpenAI OAuth')
+    message.success('已退出 Codex OAuth')
   } catch (error) {
-    message.error(error instanceof Error ? error.message : 'OpenAI 退出登录失败')
+    message.error(error instanceof Error ? error.message : 'Codex 退出登录失败')
   } finally {
     stopOauthPolling()
     authLoading.value = false
@@ -783,10 +793,10 @@ async function handleOauthMessage(event: MessageEvent) {
   }
   await refreshOauthStatus().catch(() => {})
   if (payload.status === 'connected') {
-    message.success(payload.message || 'OpenAI OAuth 登录成功')
+    message.success(payload.message || 'Codex OAuth 登录成功')
     return
   }
-  message.error(payload.message || 'OpenAI OAuth 登录失败')
+  message.error(payload.message || 'Codex OAuth 登录失败')
 }
 
 watch(selectedProfileId, () => {
